@@ -1,0 +1,80 @@
+# Tinfoil Container config for Discreto.
+# This file goes in its own PUBLIC repo made from tinfoilsh/tinfoil-containers-template,
+# because clients verify the enclave against it. The code repo and image stay private.
+# Before each release: set the image digest below and check cvm-version against the template.
+cvm-version: 0.14.18
+cpus: 2
+memory: 8192
+
+networks:
+  # Broker and agent talk to each other here. No internet.
+  internal: {}
+  # Agent egress: the inference router plus the hosts the Tinfoil SDK uses to verify it.
+  inference:
+    egress: allowlist
+    allow:
+      - inference.tinfoil.sh
+      - github-proxy.tinfoil.sh
+      - kds-proxy.tinfoil.sh
+      - tdx-proxy.tinfoil.sh
+      - tuf-repo-cdn.sigstore.dev
+  # Broker egress: Gmail over IMAP, read only.
+  mail:
+    egress: allowlist
+    allow:
+      - imap.gmail.com
+
+containers:
+  - name: broker
+    image: "ghcr.io/pistol/discreto@sha256:REPLACE_WITH_DIGEST"
+    command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
+    networks: [internal, mail]
+    env:
+      - AGENT_URL: "http://agent:8001"
+      - POLICY_PATH: "/app/config/policy.yml"
+      - DATA_DIR: "/data"
+      - TRIAGE_INTERVAL_S: "1800"
+      - ALLOWED_ORIGINS
+    secrets:
+      - BROKER_TOKEN
+      - AGENT_TOKEN
+      - USER_TOKENS
+      - MAIL_ACCOUNTS
+      - RUNLOG_KEY
+    # Milestone 1: in-memory data, lost on restart. See README for the encrypted volume.
+    volumes: ["data:/data"]
+    # persistent_volumes: ["workspace:/data"]
+    tmpfs:
+      /tmp: "size=64m"
+    restart: always
+
+  - name: agent
+    image: "ghcr.io/pistol/discreto@sha256:REPLACE_WITH_DIGEST"
+    command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
+    networks: [internal, inference]
+    env:
+      - BROKER_URL: "http://broker:8000"
+      - MODELS_PATH: "/app/config/models.yml"
+      - TINFOIL_ENCLAVE: "inference.tinfoil.sh"
+      - XDG_CACHE_HOME: "/tmp/cache"
+      - XDG_DATA_HOME: "/tmp/data"
+    secrets:
+      - AGENT_TOKEN
+      - BROKER_TOKEN
+      - TINFOIL_API_KEY
+    tmpfs:
+      /tmp: "size=128m"
+    restart: always
+
+# volumes:
+#   - name: workspace
+#     key-secret: DATA_VOLUME_KEY
+
+shim:
+  upstream-container: broker
+  upstream-port: 8000
+  paths:
+    - /healthz
+    - /api/*
+  origins:
+    - "https://pistol.github.io"
