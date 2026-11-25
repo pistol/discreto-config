@@ -34,7 +34,7 @@ containers:
       - POLICY_PATH: "/app/config/policy.yml"
       - DATA_DIR: "/data"
       - TRIAGE_INTERVAL_S: "1800"
-      - ALLOWED_ORIGINS
+      - ALLOWED_ORIGINS: "https://pistol.github.io"
     secrets:
       - BROKER_TOKEN
       - AGENT_TOKEN
