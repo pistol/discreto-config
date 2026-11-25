@@ -3,8 +3,8 @@
 // is ever sent. All API traffic then goes through client.fetch, which is bound
 // to the attested enclave. Every string from the server is rendered with
 // textContent, never as HTML, because card text comes from email.
-import { SecureClient } from "./vendor/tinfoil-1.4.0.js"; // bundled tinfoil@1.4.0, see vendor/README
-import { ENCLAVE_URL, CONFIG_REPO } from "./config.js";
+import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=2"; // bundled tinfoil@1.4.0, see vendor/README
+import { ENCLAVE_URL, CONFIG_REPO } from "./config.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
