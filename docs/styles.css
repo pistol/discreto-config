@@ -1,0 +1,24 @@
+:root { color-scheme: light dark; --fg: #111; --bg: #fafafa; --muted: #666; --line: #ddd; --ok: #1a7f37; --bad: #b42318; }
+@media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #111; --muted: #999; --line: #333; } }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); padding: env(safe-area-inset-top) 12px 12px; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+.badge { font-size: 13px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.bad { color: var(--bad); border-color: var(--bad); }
+nav { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 8px; }
+nav button.active { font-weight: 600; border-color: var(--fg); }
+button, input, textarea { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+button { cursor: pointer; }
+button.danger { color: var(--bad); border-color: var(--bad); }
+form { display: flex; gap: 6px; flex-wrap: wrap; }
+textarea, input[type=password], input[type=search] { flex: 1; min-width: 0; width: 100%; }
+ul { list-style: none; padding: 0; margin: 8px 0; }
+li { border-bottom: 1px solid var(--line); padding: 10px 0; }
+li .meta { color: var(--muted); font-size: 13px; }
+li .actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+#messages { min-height: 40vh; }
+.msg { margin: 8px 0; white-space: pre-wrap; }
+.msg.user { text-align: right; }
+.msg.user span { display: inline-block; border: 1px solid var(--line); border-radius: 12px; padding: 6px 10px; }
+pre { white-space: pre-wrap; font-size: 12px; }

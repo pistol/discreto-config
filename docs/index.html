@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://esm.sh 'wasm-unsafe-eval'; connect-src 'self' https:; style-src 'self'; img-src 'self' data:">
+  <title>Discreto</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <span id="verify" class="badge pending">Checking enclave...</span>
+    <button id="pause" class="danger" hidden>Pause agents</button>
+  </header>
+
+  <section id="login" hidden>
+    <p>The enclave passed verification. Enter your access token.</p>
+    <form id="login-form">
+      <input id="token" type="password" autocomplete="off" placeholder="Access token" required>
+      <label><input id="remember" type="checkbox"> Remember on this device</label>
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="blocked" hidden>
+    <p>The enclave did not pass verification, so nothing was sent to it.</p>
+    <pre id="blocked-detail"></pre>
+  </section>
+
+  <main id="app" hidden>
+    <nav>
+      <button data-tab="chat" class="active">Chat</button>
+      <button data-tab="cards">Cards</button>
+      <button data-tab="approvals">Approvals</button>
+      <button data-tab="memory">Memory</button>
+      <button data-tab="log">Log</button>
+    </nav>
+
+    <div id="tab-chat" class="tab">
+      <div id="messages"></div>
+      <form id="chat-form">
+        <textarea id="chat-input" rows="2" placeholder="Ask something" required></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </div>
+
+    <div id="tab-cards" class="tab" hidden>
+      <button id="triage">Check mail now</button>
+      <ul id="cards"></ul>
+    </div>
+
+    <div id="tab-approvals" class="tab" hidden>
+      <ul id="approvals"></ul>
+    </div>
+
+    <div id="tab-memory" class="tab" hidden>
+      <input id="memory-q" type="search" placeholder="Search what I know">
+      <ul id="memory"></ul>
+    </div>
+
+    <div id="tab-log" class="tab" hidden>
+      <p id="log-verify"></p>
+      <ul id="log"></ul>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
