@@ -610,6 +610,7 @@ function describeStep(r) {
     const list = from ? from[1].split(" OR ") : [];
     title = `Apply a filter to ${n || "past"} messages${list.length > 1 ? ` from ${plural(list.length, "sender")}` : ""}`;
     for (const act of acts) if (act.startsWith("label ")) facts.push(chip(`Label: ${act.slice(6)}`, "c-strong"));
+    facts.push(chip("Label: Discreto", "c-strong"));
     for (const act of acts) {
       if (act === "skip inbox") {
         facts.push(chip("Leaves the inbox"));
