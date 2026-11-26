@@ -338,13 +338,14 @@ $("triage").addEventListener("click", async () => {
 const KINDS = {
   "gmail.label": { name: "Label", cls: "k-label", group: "Label past mail" },
   "gmail.filter": { name: "New filter", cls: "k-filter", group: "New filters for new mail" },
+  "gmail.apply_filter": { name: "Apply filter", cls: "k-filter", group: "Apply filters to past mail" },
   "gmail.filter_delete": { name: "Delete filters", cls: "k-danger", group: "Delete old filters" },
   "gmail.trash": { name: "Trash", cls: "k-danger", group: "Move to Trash" },
   "gmail.archive": { name: "Archive", cls: "k-archive", group: "Archive" },
 };
 
 function countIn(reason) {
-  const m = /([\d,]+) (?:inbox )?messages/.exec(reason || "");
+  const m = /([\d,]+) (?:inbox |existing )?messages/.exec(reason || "");
   return m ? m[1] : null;
 }
 
@@ -436,6 +437,22 @@ function describeStep(r) {
     if (a.label) facts.push(chip(`Label: ${a.label}`, "c-strong"));
     if (days) facts.push(chip(days));
     facts.push(chip("Stays in All Mail", "c-ok"));
+  } else if (r.tool === "gmail.apply_filter") {
+    const sum = String(a.summary || "");
+    const i = sum.indexOf(" -> ");
+    const match = i >= 0 ? sum.slice(0, i) : sum;
+    const acts = i >= 0 ? sum.slice(i + 4).split(", ") : [];
+    const from = /^from (.*)$/.exec(match);
+    const list = from ? from[1].split(" OR ") : [];
+    title = `Apply a filter to ${n || "past"} messages${list.length > 1 ? ` from ${plural(list.length, "sender")}` : ""}`;
+    for (const act of acts) if (act.startsWith("label ")) facts.push(chip(`Label: ${act.slice(6)}`, "c-strong"));
+    for (const act of acts) {
+      if (act === "skip inbox") facts.push(chip("Leaves the inbox"), chip("Starred kept", "c-ok"));
+      else if (!act.startsWith("label ")) facts.push(chip(act));
+    }
+    facts.push(chip("Filter unchanged", "c-ok"));
+    if (list.length > 1) body = itemList(list, "sender", (li, x) => li.append(el("span", x, "sender")));
+    else if (match) { body = el("ul", null, "item-list"); const li = el("li"); renderFilter(li, sum); body.append(li); }
   } else if (r.tool === "gmail.filter_delete") {
     let summaries = Array.isArray(a.summaries) ? a.summaries : [];
     if (!summaries.length) {
