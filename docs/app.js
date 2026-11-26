@@ -620,6 +620,7 @@ const KINDS = {
   "gmail.filter_delete": { name: "Delete filters", cls: "k-danger", group: "Delete old filters" },
   "gmail.trash": { name: "Trash", cls: "k-danger", group: "Move to Trash" },
   "gmail.archive": { name: "Archive", cls: "k-archive", group: "Archive" },
+  "gmail.labels": { name: "Labels", cls: "k-label", group: "Tidy labels" },
 };
 
 function countIn(reason) {
@@ -757,6 +758,26 @@ function describeStep(r) {
     if (summaries.length) body = itemList(summaries, "filter", (li, sum, i) => {
       renderFilter(li, sum);
       if (searches[i]) li.append(gmailLink(searches[i], r.gmail_account, "All its mail in Gmail"));
+    });
+  }
+  } else if (r.tool === "gmail.labels") {
+    const create = Array.isArray(a.create) ? a.create : [];
+    const rename = Array.isArray(a.rename) ? a.rename : [];
+    const del = Array.isArray(a.delete) ? a.delete : [];
+    const k = create.length + rename.length + del.length;
+    title = `Tidy ${plural(k, "label")}`;
+    if (create.length) facts.push(chip(`${plural(create.length, "parent label")} added`, "c-strong"));
+    if (rename.length) facts.push(chip(`${plural(rename.length, "rename")}`));
+    if (del.length) facts.push(chip(`${plural(del.length, "label")} deleted`, "c-bad"));
+    facts.push(chip("No mail moves", "c-ok"));
+    const rows = [
+      ...create.map((x) => ({ text: `Add ${x}, so its labels nest under it` })),
+      ...rename.map((x) => ({ text: `Rename ${x.from} to ${x.to}` })),
+      ...del.map((x) => ({ text: `Delete ${x.name} (on ${Number(x.messages || 0).toLocaleString()} messages)`, name: x.name })),
+    ];
+    if (rows.length) body = itemList(rows, "label", (li, x) => {
+      li.append(el("span", x.text));
+      if (x.name) li.append(gmailLink(`label:${x.name.toLowerCase().replace(/[\s/]+/g, "-")}`, r.gmail_account, "Its mail in Gmail"));
     });
   }
   if (!body && senders.length) {
@@ -897,6 +918,10 @@ function resultWords(tool, res) {
   if (res.filter_id && tool === "gmail.filter") bits.push("filter created");
   if (res.filters_made) bits.push(`${n(res.filters_made)} filters recreated`);
   if (res.filters_deleted) bits.push(`${n(res.filters_deleted)} filters deleted`);
+  if (res.labels_created) bits.push(`${n(res.labels_created)} labels added`);
+  if (res.labels_renamed) bits.push(`${n(res.labels_renamed)} labels renamed`);
+  if (res.labels_deleted) bits.push(`${n(res.labels_deleted)} labels deleted`);
+  if (res.labels_changed) bits.push(`${n(res.labels_changed)} labels put back`);
   if (res.problems && res.problems.length) bits.push(`problems: ${res.problems.join("; ")}`);
   if (res.more_left) bits.push("more matched than one step covers, so another step is needed");
   return bits.length ? bits.join(", ") + "." : "";
@@ -986,7 +1011,7 @@ const TOOL_WORDS = {
   "mail.scan": "scanned the mailbox", "gmail.count": "counted matching mail", "gmail.filters": "listed Gmail filters",
   "gmail.archive": "archive", "gmail.label": "label mail", "gmail.filter": "new filter", "gmail.trash": "move to Trash",
   "gmail.filter_delete": "delete filters", "gmail.apply_filter": "apply a filter to past mail",
-  "approvals.list": "checked what waits for you", "memory.read": "looked up memory", "memory.write": "saved to memory",
+  "gmail.labels": "tidy labels", "approvals.list": "checked what waits for you", "memory.read": "looked up memory", "memory.write": "saved to memory",
   "cards.create": "made a card", "calendar.list": "read the calendar",
 };
 const toolWords = (t) => TOOL_WORDS[t] || t || "";
