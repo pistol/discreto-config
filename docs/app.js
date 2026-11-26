@@ -218,11 +218,24 @@ async function loadApprovals() {
     li.append(el("pre", typeof r.args === "string" ? r.args : JSON.stringify(r.args, null, 2)));
     li.append(el("div", when(r.created), "meta"));
     const actions = el("div", null, "actions");
+    const status = el("div", null, "meta");
     const decide = (approve) => async () => {
-      await api(`/api/approvals/${r.id}`, { method: "POST", body: { approve } });
-      loadApprovals();
+      for (const b of actions.querySelectorAll("button")) b.disabled = true;
+      status.textContent = approve ? "Working on it..." : "Denying...";
+      try {
+        const out = await api(`/api/approvals/${r.id}`, { method: "POST", body: { approve } });
+        const res = out && out.result;
+        if (!approve) status.textContent = "Denied.";
+        else if (res && res.error) status.textContent = `Failed: ${res.error}`;
+        else if (res && typeof res.changed === "number") status.textContent = `Done. ${res.changed} messages changed.`;
+        else status.textContent = "Done.";
+      } catch (err) {
+        status.textContent = `Failed: ${err.message}`;
+      }
+      setTimeout(loadApprovals, 4000);
     };
     actions.append(button("Approve", decide(true)), button("Deny", decide(false), "danger"));
+    li.append(status);
     li.append(actions);
     list.append(li);
   }
