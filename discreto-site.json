@@ -1,0 +1,12 @@
+{
+  "owner": "pistol",
+  "code_repo_name": "discreto",
+  "config_repo_name": "discreto-config",
+  "org": "discreto",
+  "instance": "app",
+  "digest": "sha256:400b8161d2a18c3b6128d333612b5db9f7aad735de5c6f01dc08757f9cebc7aa",
+  "google": true,
+  "idle": true,
+  "container_id": "4b4989ce-7a75-4977-9436-010a64c701de",
+  "idle_minutes": 60
+}

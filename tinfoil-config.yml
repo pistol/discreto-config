@@ -1,7 +1,6 @@
-# Tinfoil Container config for Discreto.
-# This file goes in its own PUBLIC repo made from tinfoilsh/tinfoil-containers-template,
-# because clients verify the enclave against it. The code repo and image stay private.
-# Before each release: set the image digest below and check cvm-version against the template.
+# Tinfoil Container config for Discreto, written by scripts/new_config_repo.py.
+# Edit discreto-site.json (or pass flags) and re-run the script instead of editing by hand.
+# Clients verify the enclave against signed releases of this file, so this repo must stay public.
 cvm-version: 0.14.18
 cpus: 2
 memory: 8192
@@ -56,7 +55,6 @@ containers:
       - RUNLOG_KEY
       - GOOGLE_OAUTH
       - TINFOIL_STOP_KEY
-    # Milestone 1: in-memory data, lost on restart. See README for the encrypted volume.
     volumes: ["data:/data"]
     persistent_volumes: ["workspace:/persist"]
     tmpfs:
