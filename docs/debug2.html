@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discreto module debug</title>
+<pre id="out">starting</pre>
+<script type="module">
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += "\n" + s; };
+window.addEventListener("error", (e) => log("error: " + e.message + " at " + e.filename + ":" + e.lineno));
+window.addEventListener("unhandledrejection", (e) => log("rejection: " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+for (const m of ["./markdown.js?v=3", "./passkey.js?v=1", "./config.js?v=4"]) {
+  try { await import(m); log("ok " + m); } catch (e) { log("FAIL " + m + ": " + (e.stack || e.message)); }
+}
+try { await import("./app.js?v=25"); log("ok app.js"); } catch (e) { log("FAIL app.js: " + (e.stack || e.message)); }
+</script>
