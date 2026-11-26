@@ -447,7 +447,13 @@ function describeStep(r) {
     title = `Apply a filter to ${n || "past"} messages${list.length > 1 ? ` from ${plural(list.length, "sender")}` : ""}`;
     for (const act of acts) if (act.startsWith("label ")) facts.push(chip(`Label: ${act.slice(6)}`, "c-strong"));
     for (const act of acts) {
-      if (act === "skip inbox") facts.push(chip("Leaves the inbox"), chip("Starred kept", "c-ok"));
+      if (act === "skip inbox") {
+        facts.push(chip("Leaves the inbox"));
+        const st = a.starred && a.starred !== "0" ? a.starred : null;
+        if (!a.include_starred) facts.push(chip("Starred stay in inbox", "c-ok"));
+        else if (st && a.unstar) facts.push(chip(`Unstars ${st}, marked Discreto/Unstarred`, "c-warn"));
+        else if (st) facts.push(chip(`${st} starred move too, keep star`));
+      }
       else if (!act.startsWith("label ")) facts.push(chip(act));
     }
     facts.push(chip("Filter unchanged", "c-ok"));
