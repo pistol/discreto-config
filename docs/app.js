@@ -577,7 +577,7 @@ function modelRow(m, selected) {
   const text = el("span", null, "m-text");
   text.append(el("span", m.label, "m-label"));
   if (selected && m.description) text.append(el("span", m.description, "m-desc"));
-  text.append(el("span", `${fmtContext(m.context)} context · ${fmtPrice(m.price_in)} in / ${fmtPrice(m.price_out)} out per 1M`, "m-meta"));
+  text.append(el("span", `${fmtContext(m.context)} context · ${fmtPrice(m.price_in)} / ${fmtPrice(m.price_out)} per 1M tokens`, "m-meta"));
   if (m.experimental) text.append(el("span", "Experimental", "m-badge"));
   return menuRow([modelIcon(m), text], { selected, onPick: () => { setPick({ model: m.id, effort: null }); closeModelMenu(); } });
 }
