@@ -567,7 +567,8 @@ async function loadCards() {
   for (const c of open) {
     const li = el("li", null, "card");
     const top = el("div", null, "card-top");
-    if (c.action) top.append(chip(c.action, "kind k-label"));
+    // Older cards said "Draft reply", but Discreto never drafts mail: the reply is yours to write.
+    if (c.action) top.append(chip(c.action === "Draft reply" ? "Reply" : c.action, "kind k-label"));
     top.append(el("strong", c.title, "card-title"));
     li.append(top, el("div", c.body), el("div", `From new mail · ${since(c.created)}`, "meta"));
     const actions = el("div", null, "actions");
