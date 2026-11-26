@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 :root { color-scheme: light dark; --fg: #111; --bg: #fafafa; --muted: #666; --line: #ddd; --ok: #1a7f37; --bad: #b42318; }
 @media (prefers-color-scheme: dark) { :root { --fg: #eee; --bg: #111; --muted: #999; --line: #333; } }
 * { box-sizing: border-box; }

@@ -742,7 +742,7 @@ function approvalCard(r) {
     li.classList.add(ok ? "done" : "failed");
     status.classList.add(ok ? "ok" : "bad");
     if (!ok) { actions.hidden = false; approveBtn.textContent = "Try again"; }
-    else delete li.approve;
+    else { actions.remove(); delete li.approve; }
     refreshBadges();
     return ok;
   };
