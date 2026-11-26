@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'">
+  <title>Discreto privacy policy</title>
+  <link rel="stylesheet" href="styles.css?v=3">
+</head>
+<body>
+<main class="doc">
+  <h1>Discreto privacy policy</h1>
+  <p>Last updated: November 25, 2026</p>
+
+  <p>Discreto is a private, invitation-only email assistant run for its owner and a small number of testers. This page explains what it reads, what it does with that data and what it never does.</p>
+
+  <h2>What Discreto accesses</h2>
+  <ul>
+    <li>Your email, through Gmail IMAP and, if you connect it, the Gmail API with the scopes gmail.modify and gmail.settings.basic.</li>
+    <li>With the Gmail API, Discreto can count, label, archive or move messages to Trash and create Gmail filters. It does each of these only after you approve that specific change in Discreto's web app.</li>
+    <li>Discreto does not send email on your behalf.</li>
+  </ul>
+
+  <h2>Where your data is processed</h2>
+  <ul>
+    <li>Discreto runs inside a Tinfoil confidential container, a hardware-isolated enclave whose code can be verified against this public repository. The web app checks that verification before it sends anything.</li>
+    <li>Email text is summarized by AI models that also run in Tinfoil enclaves.</li>
+    <li>Discreto has no persistent disk. What it learns is held in memory and is lost when the instance stops.</li>
+    <li>Your Google refresh token is held in memory. To keep it across restarts, you store it yourself as an encrypted secret in Tinfoil. You can revoke it at any time at myaccount.google.com/permissions.</li>
+  </ul>
+
+  <h2>What Discreto never does</h2>
+  <ul>
+    <li>It does not sell, rent or share your data with anyone.</li>
+    <li>It does not use your data for advertising.</li>
+    <li>It does not use your data to train AI models.</li>
+    <li>No person reads your email, except you.</li>
+  </ul>
+
+  <h2>Google API Services</h2>
+  <p>Discreto's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>Deleting your data</h2>
+  <p>Stopping the instance clears everything Discreto holds in memory. Revoking Discreto's access in your Google account stops all further access to Gmail.</p>
+
+  <h2>Contact</h2>
+  <p>Discreto is used by invitation only. For questions, contact the person who invited you.</p>
+
+  <p><a href="./">Back to Discreto</a></p>
+</main>
+</body>
+</html>

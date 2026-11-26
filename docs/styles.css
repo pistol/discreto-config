@@ -36,3 +36,6 @@ pre { white-space: pre-wrap; font-size: 12px; }
 .md table { border-collapse: collapse; font-size: 14px; }
 .md th, .md td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
 .md th { font-weight: 600; }
+
+main.doc { max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+main.doc h2 { margin-top: 1.5rem; }
