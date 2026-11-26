@@ -31,7 +31,7 @@ networks:
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:1a2340c0c7d7abbc688b376ff7f22f5def0e3f02a98dd83b11ff0db76a82f8d8"
+    image: "ghcr.io/pistol/discreto@sha256:bddf91e9c3ba695893e16f7f5eb07f97c9c886df7b16f1e84c7bcef055006882"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
@@ -64,7 +64,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:1a2340c0c7d7abbc688b376ff7f22f5def0e3f02a98dd83b11ff0db76a82f8d8"
+    image: "ghcr.io/pistol/discreto@sha256:bddf91e9c3ba695893e16f7f5eb07f97c9c886df7b16f1e84c7bcef055006882"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
