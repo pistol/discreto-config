@@ -745,7 +745,11 @@ function describeStep(r) {
     }
     const k = summaries.length || (Array.isArray(a.filter_ids) ? a.filter_ids.length : 1);
     title = a.stale ? `Delete ${plural(k, "stale filter")}` : `Delete ${plural(k, "filter")}`;
-    if (a.stale) facts.push(chip("No matching mail in a year"));
+    if (a.stale) {
+      const d = a.stale_days || 365;
+      const span = d % 365 === 0 ? (d === 365 ? "a year" : `${d / 365} years`) : `${d} days`;
+      facts.push(chip(`No matching mail in ${span}`));
+    }
     facts.push(chip("Mail stays where it is", "c-ok"));
     if (summaries.length) body = itemList(summaries, "filter", renderFilter);
   }
