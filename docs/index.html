@@ -30,6 +30,21 @@
   </section>
 
   <main id="app" hidden>
+    <section id="storage" hidden>
+      <p id="storage-msg">Discreto's saved data is locked. Enter your storage key to unlock it.</p>
+      <form id="storage-form">
+        <input id="storage-key" type="password" autocomplete="off" placeholder="Storage key">
+        <label><input id="storage-remember" type="checkbox"> Remember on this device</label>
+        <button type="submit">Unlock</button>
+        <button type="button" id="storage-new">First time: create a key</button>
+      </form>
+      <div id="storage-create" hidden>
+        <p>Save this key in your password manager now. It can't be recovered, and losing it loses Discreto's saved data.</p>
+        <pre id="storage-newkey"></pre>
+        <label><input id="storage-saved" type="checkbox"> I saved this key</label>
+        <button type="button" id="storage-init" disabled>Set up storage with this key</button>
+      </div>
+    </section>
     <nav>
       <button data-tab="chat" class="active">Chat</button>
       <button data-tab="cards">Cards</button>
@@ -66,6 +81,6 @@
     </div>
   </main>
 
-  <script type="module" src="app.js?v=4"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@ import { renderMarkdown } from "./markdown.js?v=3";
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
 let client = null;
+const STORAGE_KEY = "discreto.storageKey";
 let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 let taskId = null;
 
@@ -85,6 +86,7 @@ async function verify() {
 function signOut() {
   token = null;
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(STORAGE_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
   $("app").hidden = true;
   $("pause").hidden = true;
@@ -110,7 +112,60 @@ async function start() {
   $("app").hidden = false;
   $("pause").hidden = false;
   showTab("chat");
+  checkStorage();
 }
+
+// Encrypted storage: the key stays with the user and goes only to the verified enclave.
+
+
+async function unlockStorage(key, initialize) {
+  const msg = $("storage-msg");
+  msg.textContent = initialize ? "Setting up storage..." : "Unlocking...";
+  try {
+    await api("/api/storage/unlock", { method: "POST", body: { key, initialize } });
+    $("storage").hidden = true;
+    return true;
+  } catch (err) {
+    msg.textContent = `Couldn't unlock: ${err.message}`;
+    return false;
+  }
+}
+
+async function checkStorage() {
+  let state;
+  try { state = (await api("/api/storage")).state; } catch { return; }
+  if (state !== "locked") { $("storage").hidden = true; return; }
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved && await unlockStorage(saved, false)) return;
+  $("storage").hidden = false;
+}
+
+$("storage-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const key = $("storage-key").value.trim();
+  if (!key) return;
+  if (await unlockStorage(key, false)) {
+    if ($("storage-remember").checked) localStorage.setItem(STORAGE_KEY, key);
+    $("storage-key").value = "";
+  }
+});
+
+$("storage-new").addEventListener("click", () => {
+  const raw = crypto.getRandomValues(new Uint8Array(32));
+  $("storage-newkey").textContent = btoa(String.fromCharCode(...raw));
+  $("storage-create").hidden = false;
+});
+
+$("storage-saved").addEventListener("change", (e) => { $("storage-init").disabled = !e.target.checked; });
+
+$("storage-init").addEventListener("click", async () => {
+  const key = $("storage-newkey").textContent;
+  if (await unlockStorage(key, true)) {
+    if ($("storage-remember").checked) localStorage.setItem(STORAGE_KEY, key);
+    $("storage-newkey").textContent = "";
+    $("storage-create").hidden = true;
+  }
+});
 
 function alertLine(text) {
   const p = el("p", text, "meta");

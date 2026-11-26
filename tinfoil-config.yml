@@ -28,13 +28,16 @@ networks:
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:66ef3c3eb09cfd4aa35a223bee845b20c61563a787ad2fc6e8d22e3ab68bc8b1"
+    image: "ghcr.io/pistol/discreto@sha256:4d2c5a970c7d2b2609b34edc29b9914ea3d6558a3aca2c20bb4a6711adf3ad1e"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
       - AGENT_URL: "http://agent:8001"
       - POLICY_PATH: "/app/config/policy.yml"
       - DATA_DIR: "/data"
+      # Encrypted volume, unlocked from the web app with the user's key (no key-secret, so Tinfoil never has it)
+      - PERSIST_DIR: "/persist"
+      - PERSIST_VOLUME: "workspace"
       - TRIAGE_INTERVAL_S: "1800"
       - ALLOWED_ORIGINS: "https://pistol.github.io"
       # Enables /mcp and OAuth for the Claude custom connector. Must be this enclave's own URL.
@@ -48,13 +51,13 @@ containers:
       - GOOGLE_OAUTH
     # Milestone 1: in-memory data, lost on restart. See README for the encrypted volume.
     volumes: ["data:/data"]
-    # persistent_volumes: ["workspace:/data"]
+    persistent_volumes: ["workspace:/persist"]
     tmpfs:
       /tmp: "size=64m"
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:66ef3c3eb09cfd4aa35a223bee845b20c61563a787ad2fc6e8d22e3ab68bc8b1"
+    image: "ghcr.io/pistol/discreto@sha256:4d2c5a970c7d2b2609b34edc29b9914ea3d6558a3aca2c20bb4a6711adf3ad1e"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
@@ -71,9 +74,10 @@ containers:
       /tmp: "size=128m"
     restart: always
 
-# volumes:
-#   - name: workspace
-#     key-secret: DATA_VOLUME_KEY
+# Unlocked at runtime by the user's key through the volume's control socket.
+volumes:
+  - name: workspace
+    owner: "10001:10001"
 
 shim:
   upstream-container: broker
