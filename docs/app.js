@@ -733,7 +733,7 @@ function approvalCard(r) {
       const res = out && out.result;
       if (!approve) status.textContent = "Denied. Nothing changed.";
       else if (res && res.error) { ok = false; status.textContent = `Failed: ${res.error}`; }
-      else status.textContent = `Done. ${resultWords(r.tool, res)}`;
+      else status.textContent = `Done. ${resultWords(r.tool, res)}${out.undo ? " You can undo it from the Log tab." : ""}`;
     } catch (err) {
       ok = false;
       status.textContent = `Failed: ${err.message}`;
@@ -760,6 +760,9 @@ function resultWords(tool, res) {
   if (res.unstarred) bits.push(`${n(res.unstarred)} unstarred`);
   if (typeof res.deleted === "number") bits.push(`${n(res.deleted)} filters deleted`);
   if (res.filter_id && tool === "gmail.filter") bits.push("filter created");
+  if (res.filters_made) bits.push(`${n(res.filters_made)} filters recreated`);
+  if (res.filters_deleted) bits.push(`${n(res.filters_deleted)} filters deleted`);
+  if (res.problems && res.problems.length) bits.push(`problems: ${res.problems.join("; ")}`);
   if (res.more_left) bits.push("more matched than one step covers, so another step is needed");
   return bits.length ? bits.join(", ") + "." : "";
 }
@@ -863,12 +866,15 @@ function logLine(e) {
       if (d.verdict === "ask") return { text: `Proposed for your approval: ${first(d.summary || toolWords(d.tool))}`, show: true };
       if (d.verdict === "deny") return { text: `Blocked by policy: ${toolWords(d.tool)} (${d.reason})`, show: true, bad: true };
       return { text: `Agent ${toolWords(d.tool)}`, show: false };
+    case "undo":
+      return { text: `You undid: ${first(d.of || toolWords(d.tool))}. ${first(d.summary || "")}`, show: true };
     case "approval":
       return { text: `You ${d.approved ? "approved" : "denied"}: ${first(d.summary || toolWords(d.tool))}`, show: true };
     case "result": {
       const r = parsePreview(d.preview);
       const err = r && r.error;
       if (err) return { text: `Failed, ${toolWords(d.tool)}: ${first(String(err))}`, show: true, bad: true };
+      if (d.tool === "undo") return { text: `Undo done. ${resultWords(d.tool, r)}`, show: true };
       if (String(d.tool || "").startsWith("gmail.") && !["gmail.count", "gmail.filters"].includes(d.tool)) {
         return { text: `Done, ${toolWords(d.tool)}. ${resultWords(d.tool, r)}`, show: true };
       }
@@ -918,12 +924,85 @@ async function loadRuns() {
   }
 }
 
+// Approved steps, newest first, each with an Undo that reverses exactly the messages it changed.
+let historyAll = false;
+async function loadHistory() {
+  const box = $("log-history");
+  let rows;
+  try { rows = await api("/api/history"); } catch { return; }
+  box.replaceChildren();
+  if (!rows.length) return;
+  box.append(el("strong", "Approved steps"));
+  box.append(el("p", "What you approved or denied. Undo puts back exactly the messages a step changed; mail that already had a label keeps it.", "meta"));
+  const list = el("ul", null, "history");
+  const shown = historyAll ? rows : rows.slice(0, 10);
+  for (const r of shown) list.append(historyRow(r));
+  box.append(list);
+  if (rows.length > shown.length) {
+    box.append(button(`Show all ${rows.length}`, () => { historyAll = true; loadHistory(); }, "link"));
+  }
+}
+
+function historyRow(r) {
+  const kind = KINDS[r.tool] || { name: r.tool, cls: "" };
+  const li = el("li", null, "card history-row");
+  const top = el("div", null, "card-top");
+  let title;
+  try { title = describeStep(r).title; } catch { title = first(r.reason, 120); }
+  top.append(chip(kind.name, `kind ${kind.cls}`), el("strong", title, "card-title"));
+  li.append(top);
+  const verb = r.status === "approved" ? "Approved" : "Denied";
+  const res = r.status === "approved" && r.result ? ` ${resultWords(r.tool, r.result)}` : "";
+  li.append(el("div", `${verb} ${since(r.decided || r.created)}.${res}`, "meta"));
+  const status = el("div", null, "step-status");
+  if (r.undone) {
+    const ur = r.undo_result || {};
+    status.textContent = ur.error ? `Undo failed: ${ur.error}` : `Undone ${since(r.undone)}. ${resultWords(r.tool, ur)}`;
+    status.classList.add(ur.error ? "bad" : "ok");
+    li.append(status);
+  } else if (r.can_undo) {
+    li.append(el("div", `Undo would ${r.undo.charAt(0).toLowerCase()}${r.undo.slice(1)}`, "reason"));
+    const actions = el("div", null, "actions");
+    let armed = false, timer = null;
+    const b = button("Undo", async () => {
+      if (!armed) {
+        armed = true;
+        b.textContent = "Tap again to undo";
+        timer = setTimeout(() => { armed = false; b.textContent = "Undo"; }, 5000);
+        return;
+      }
+      clearTimeout(timer);
+      actions.remove();
+      status.replaceChildren(el("span", null, "spinner"), el("span", " Undoing in Gmail, big steps can take a minute..."));
+      li.append(status);
+      try {
+        const out = await api(`/api/history/${r.id}/undo`, { method: "POST" });
+        const ur = out.result || {};
+        status.textContent = ur.error ? `Undo failed: ${ur.error}` : `Undone. ${resultWords(r.tool, ur)}`;
+        status.classList.add(ur.error ? "bad" : "ok");
+      } catch (err) {
+        status.textContent = `Undo failed: ${err.message}`;
+        status.classList.add("bad");
+      }
+    }, "danger");
+    actions.append(b);
+    li.append(actions);
+  } else if (r.status === "approved" && r.why_not) {
+    li.append(el("div", `No undo: ${r.why_not}.`, "meta"));
+  }
+  const exact = el("details");
+  exact.append(el("summary", "Exact wording"), el("div", r.reason, "reason"));
+  li.append(exact);
+  return li;
+}
+
 async function loadLog() {
   const [entries, check] = await Promise.all([api("/api/log"), api("/api/log/verify")]);
   $("log-verify").textContent = check.ok
     ? `Run log intact: ${check.entries} entries since this run started, chain and signatures check out.`
     : `Run log check failed: ${check.error}`;
   loadRuns();
+  loadHistory();
   const shown = entries.slice(-300);
   usageSummary(shown);
   const all = $("log-all").checked;
