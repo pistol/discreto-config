@@ -25,12 +25,17 @@ networks:
       - imap.gmail.com
       - oauth2.googleapis.com
       - gmail.googleapis.com
+  # Broker egress: Tinfoil's admin API, only to stop this instance after an hour without use.
+  control:
+    egress: allowlist
+    allow:
+      - api.tinfoil.sh
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:0a0d3be8fa7d53caa719423ecc4ed58d91c8870554c8e8b93cd6c0815601daa8"
+    image: "ghcr.io/pistol/discreto@sha256:dc988c6ed31d274a4e14267764f5c6048dae2ff5255b9d4123be3a9db34c3ac8"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
-    networks: [internal, mail]
+    networks: [internal, mail, control]
     env:
       - AGENT_URL: "http://agent:8001"
       - POLICY_PATH: "/app/config/policy.yml"
@@ -42,6 +47,9 @@ containers:
       - ALLOWED_ORIGINS: "https://pistol.github.io"
       # Enables /mcp and OAuth for the Claude custom connector. Must be this enclave's own URL.
       - PUBLIC_URL: "https://app.discreto.containers.tinfoil.dev"
+      # Stop after this many minutes without use; 0 turns it off. Needs TINFOIL_STOP_KEY.
+      - IDLE_STOP_MINUTES: "60"
+      - TINFOIL_CONTAINER_ID: "4b4989ce-7a75-4977-9436-010a64c701de"
     secrets:
       - BROKER_TOKEN
       - AGENT_TOKEN
@@ -49,6 +57,7 @@ containers:
       - MAIL_ACCOUNTS
       - RUNLOG_KEY
       - GOOGLE_OAUTH
+      - TINFOIL_STOP_KEY
     # Milestone 1: in-memory data, lost on restart. See README for the encrypted volume.
     volumes: ["data:/data"]
     persistent_volumes: ["workspace:/persist"]
@@ -57,7 +66,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:0a0d3be8fa7d53caa719423ecc4ed58d91c8870554c8e8b93cd6c0815601daa8"
+    image: "ghcr.io/pistol/discreto@sha256:dc988c6ed31d274a4e14267764f5c6048dae2ff5255b9d4123be3a9db34c3ac8"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
