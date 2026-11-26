@@ -18,7 +18,12 @@
   <div id="restart-banner" class="banner" hidden>Discreto is restarting. This page reconnects by itself when it's back.</div>
 
   <section id="login" hidden>
-    <p>The enclave passed verification. Enter your access token.</p>
+    <p>The enclave passed verification. Sign in.</p>
+    <div id="login-passkey-box" hidden>
+      <button type="button" id="login-passkey" class="primary">Sign in with Touch ID</button>
+      <button type="button" id="login-forget" class="link">Forget the keys saved on this device</button>
+      <p class="meta">Or enter your access token:</p>
+    </div>
     <form id="login-form">
       <input id="token" type="password" autocomplete="off" placeholder="Access token" required>
       <label><input id="remember" type="checkbox"> Remember on this device</label>
@@ -40,6 +45,12 @@
   </section>
 
   <main id="app" hidden>
+    <section id="passkey-offer" hidden>
+      <p>Sign in with Touch ID next time? Your access token and storage key get locked with a passkey on this device, and the plain copies are removed from this browser.</p>
+      <button type="button" id="passkey-save" class="primary">Use Touch ID</button>
+      <button type="button" id="passkey-later" class="link">Not now</button>
+      <p id="passkey-msg" class="meta"></p>
+    </section>
     <section id="storage" hidden>
       <p id="storage-msg">Discreto's saved data is locked. Enter your storage key to unlock it.</p>
       <form id="storage-form">
@@ -107,6 +118,6 @@
     </div>
   </main>
 
-  <script type="module" src="app.js?v=15"></script>
+  <script type="module" src="app.js?v=16"></script>
 </body>
 </html>

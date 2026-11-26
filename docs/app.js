@@ -7,11 +7,16 @@
 import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
 import { ENCLAVE_URL, CONFIG_REPO, START_REPO, START_WORKFLOW } from "./config.js?v=4";
 import { renderMarkdown } from "./markdown.js?v=3";
+import { hasVault, createVault, openVault, forgetVault, passkeysAvailable } from "./passkey.js?v=1";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
 let client = null;
 const STORAGE_KEY = "discreto.storageKey";
+// Secrets opened with Touch ID stay in memory for this page only.
+let storageKeyMem = null;
+let githubMem = null;
+let vaultUpdate = null;
 const GITHUB_KEY = "discreto.githubToken";
 let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 let taskId = null;
@@ -143,7 +148,7 @@ async function start() {
   $("app").hidden = false;
   $("pause").hidden = false;
   showTab(tabFromHash());
-  checkStorage();
+  checkStorage().then(offerPasskey);
   loadHeader();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshBadges(); });
@@ -235,7 +240,7 @@ function showStopped() {
   const badge = $("verify");
   badge.textContent = "Stopped";
   badge.className = "badge pending";
-  $("gh-token").hidden = Boolean(localStorage.getItem(GITHUB_KEY));
+  $("gh-token").hidden = Boolean(localStorage.getItem(GITHUB_KEY)) || hasVault();
   $("stopped").hidden = false;
 }
 
@@ -243,7 +248,15 @@ $("start-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const msg = $("stopped-msg");
   const btn = $("start-btn");
-  const gh = localStorage.getItem(GITHUB_KEY) || $("gh-token").value.trim();
+  let gh = localStorage.getItem(GITHUB_KEY) || githubMem || $("gh-token").value.trim();
+  if (!gh && hasVault()) {
+    try {
+      const v = await openVault();
+      vaultUpdate = v.update;
+      githubMem = gh = v.secrets.githubToken || "";
+    } catch (err) { msg.textContent = `Touch ID didn't open the saved keys: ${err.message}`; return; }
+    if (!gh) { $("gh-token").hidden = false; msg.textContent = "No GitHub token is saved with Touch ID yet. Enter one once."; return; }
+  }
   if (!gh) { msg.textContent = "Enter a GitHub token first."; return; }
   btn.disabled = true;
   msg.textContent = "Asking GitHub to start Discreto...";
@@ -268,7 +281,12 @@ $("start-form").addEventListener("submit", async (e) => {
     btn.disabled = false;
     return;
   }
-  localStorage.setItem(GITHUB_KEY, gh);
+  if (hasVault()) {
+    githubMem = gh;
+    if (vaultUpdate) await vaultUpdate({ githubToken: gh }).catch(() => {});
+  } else {
+    localStorage.setItem(GITHUB_KEY, gh);
+  }
   $("gh-token").value = "";
   $("gh-token").hidden = true;
   const t0 = Date.now();
@@ -290,6 +308,8 @@ async function unlockStorage(key, initialize) {
   try {
     await api("/api/storage/unlock", { method: "POST", body: { key, initialize } });
     $("storage").hidden = true;
+    storageKeyMem = key;
+    if (vaultUpdate) vaultUpdate({ storageKey: key }).catch(() => {});
     return true;
   } catch (err) {
     msg.textContent = `Couldn't unlock: ${err.message}`;
@@ -301,7 +321,7 @@ async function checkStorage() {
   let state;
   try { state = (await api("/api/storage")).state; } catch { return; }
   if (state !== "locked") { $("storage").hidden = true; return; }
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = storageKeyMem || localStorage.getItem(STORAGE_KEY);
   if (saved && await unlockStorage(saved, false)) return;
   $("storage").hidden = false;
 }
@@ -311,7 +331,7 @@ $("storage-form").addEventListener("submit", async (e) => {
   const key = $("storage-key").value.trim();
   if (!key) return;
   if (await unlockStorage(key, false)) {
-    if ($("storage-remember").checked) localStorage.setItem(STORAGE_KEY, key);
+    if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     $("storage-key").value = "";
   }
 });
@@ -327,11 +347,73 @@ $("storage-saved").addEventListener("change", (e) => { $("storage-init").disable
 $("storage-init").addEventListener("click", async () => {
   const key = $("storage-newkey").textContent;
   if (await unlockStorage(key, true)) {
-    if ($("storage-remember").checked) localStorage.setItem(STORAGE_KEY, key);
+    if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     $("storage-newkey").textContent = "";
     $("storage-create").hidden = true;
   }
 });
+
+// Touch ID / Face ID sign-in
+
+$("login-passkey").addEventListener("click", async () => {
+  try {
+    const v = await openVault();
+    vaultUpdate = v.update;
+    token = v.secrets.token;
+    storageKeyMem = v.secrets.storageKey || null;
+    githubMem = v.secrets.githubToken || null;
+  } catch (err) {
+    alertLine(`Touch ID didn't open the saved keys: ${err.message}`);
+    return;
+  }
+  await start();
+});
+
+$("login-forget").addEventListener("click", () => {
+  forgetVault();
+  $("login-passkey-box").hidden = true;
+});
+
+async function offerPasskey() {
+  const box = $("passkey-offer");
+  if (hasVault() || localStorage.getItem("discreto.passkeyDeclined") || !(await passkeysAvailable())) return;
+  box.hidden = false;
+}
+
+$("passkey-save").addEventListener("click", async () => {
+  const msg = $("passkey-msg");
+  msg.textContent = "Follow the Touch ID prompt...";
+  try {
+    await createVault({
+      token,
+      storageKey: storageKeyMem || localStorage.getItem(STORAGE_KEY),
+      githubToken: githubMem || localStorage.getItem(GITHUB_KEY),
+    });
+  } catch (err) {
+    msg.textContent = `Not saved: ${err.message}`;
+    return;
+  }
+  const v = await openVault().catch(() => null);
+  if (v) vaultUpdate = v.update;
+  // Plain copies go away; from now on the keys come out only with Touch ID.
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(GITHUB_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  $("passkey-offer").hidden = true;
+  showToast("Saved. Next time, sign in with Touch ID.");
+});
+
+$("passkey-later").addEventListener("click", () => {
+  localStorage.setItem("discreto.passkeyDeclined", "1");
+  $("passkey-offer").hidden = true;
+});
+
+function showToast(text) {
+  const p = el("p", text, "meta toast");
+  $("app").prepend(p);
+  setTimeout(() => p.remove(), 6000);
+}
 
 function alertLine(text) {
   const p = el("p", text, "meta");
@@ -1052,5 +1134,8 @@ $("pause").addEventListener("click", async () => {
   if (!(await isUp())) { showStopped(); return; }
   if (!(await verify())) return;
   if (token) await start();
-  else $("login").hidden = false;
+  else {
+    $("login-passkey-box").hidden = !hasVault();
+    $("login").hidden = false;
+  }
 })();
