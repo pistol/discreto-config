@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Discreto verify debug</title>
+<pre id="out">starting</pre>
+<script type="module">
+// Shows each network request the enclave check makes, to find where it stalls. No account data.
+const out = document.getElementById("out");
+const t0 = performance.now();
+const log = (s) => { out.textContent += `\n${((performance.now() - t0) / 1000).toFixed(1)}s ${s}`; };
+window.addEventListener("error", (e) => log("error: " + e.message));
+window.addEventListener("unhandledrejection", (e) => log("rejection: " + (e.reason && e.reason.message || e.reason)));
+const realFetch = window.fetch.bind(window);
+window.fetch = async (input, init) => {
+  const url = String(input && input.url ? input.url : input).split("?")[0];
+  log("-> " + url);
+  try {
+    const r = await realFetch(input, init);
+    log("<- " + r.status + " " + url);
+    return r;
+  } catch (e) { log("x  " + url + " " + e.message); throw e; }
+};
+try {
+  const { SecureClient } = await import("./vendor/tinfoil-1.4.0.js?v=3");
+  const { ENCLAVE_URL, CONFIG_REPO } = await import("./config.js?v=4");
+  log("sdk loaded");
+  const client = new SecureClient({ enclaveURL: ENCLAVE_URL, configRepo: CONFIG_REPO });
+  await client.ready();
+  const doc = await client.getVerificationDocument();
+  log("ready, securityVerified=" + (doc && doc.securityVerified));
+} catch (e) { log("failed: " + (e && e.message || e)); }
+log("done");
+</script>
