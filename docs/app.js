@@ -642,9 +642,9 @@ function itemList(items, noun, render) {
   const ul = el("ul", null, "item-list");
   const show = (n) => {
     ul.replaceChildren();
-    for (const it of items.slice(0, n)) {
+    for (const [i, it] of items.slice(0, n).entries()) {
       const li = el("li");
-      render(li, it);
+      render(li, it, i);
       ul.append(li);
     }
   };
@@ -752,7 +752,12 @@ function describeStep(r) {
       facts.push(chip(`No matching mail in ${span}`));
     }
     facts.push(chip("Mail stays where it is", "c-ok"));
-    if (summaries.length) body = itemList(summaries, "filter", renderFilter);
+    const searches = Array.isArray(a.searches) ? a.searches : [];
+    // Stale filters match nothing recent, so each row opens everything that filter ever matched.
+    if (summaries.length) body = itemList(summaries, "filter", (li, sum, i) => {
+      renderFilter(li, sum);
+      if (searches[i]) li.append(gmailLink(searches[i], r.gmail_account, "All its mail in Gmail"));
+    });
   }
   if (!body && senders.length) {
     body = itemList(senders, "sender", (li, s) => li.append(el("span", s, "sender")));
@@ -813,10 +818,10 @@ function approveAllButton(cards, n) {
 }
 
 // Opens Gmail's own search for the mail a step would touch, in the account Discreto works on.
-function gmailLink(search, account) {
+function gmailLink(search, account, label = "Open matching mail in Gmail") {
   // authuser picks the signed-in account by address; a /u/<address>/ path gives Gmail a 404.
   const who = account ? `?authuser=${encodeURIComponent(account)}` : "";
-  const a = el("a", "Open matching mail in Gmail", "gmail-link");
+  const a = el("a", label, "gmail-link");
   a.href = `https://mail.google.com/mail/${who}#search/${encodeURIComponent(search)}`;
   a.target = "_blank";
   a.rel = "noopener noreferrer";

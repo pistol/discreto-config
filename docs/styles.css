@@ -132,3 +132,4 @@ ul.history > li.card { border: 1px solid var(--line); border-radius: 12px; paddi
 ul.history details { margin-top: 8px; font-size: 13px; }
 ul.history details summary { cursor: pointer; color: var(--muted); }
 .gmail-link { display: inline-block; margin: 6px 0 2px; font-size: 0.95em; }
+.item-list .gmail-link { margin: 4px 0 0; font-size: 0.85em; }
