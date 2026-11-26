@@ -814,9 +814,10 @@ function approveAllButton(cards, n) {
 
 // Opens Gmail's own search for the mail a step would touch, in the account Discreto works on.
 function gmailLink(search, account) {
-  const who = account ? encodeURIComponent(account) : "0";
+  // authuser picks the signed-in account by address; a /u/<address>/ path gives Gmail a 404.
+  const who = account ? `?authuser=${encodeURIComponent(account)}` : "";
   const a = el("a", "Open matching mail in Gmail", "gmail-link");
-  a.href = `https://mail.google.com/mail/u/${who}/#search/${encodeURIComponent(search)}`;
+  a.href = `https://mail.google.com/mail/${who}#search/${encodeURIComponent(search)}`;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
   return a;
