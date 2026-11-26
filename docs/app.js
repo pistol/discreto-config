@@ -786,7 +786,58 @@ function describeStep(r) {
   return { title, facts, body };
 }
 
+// The plan: what waits on you and what Discreto is working through, ticked off here.
+async function loadPlan() {
+  const box = $("plan");
+  let items = [];
+  try { items = await api("/api/plan"); } catch { items = []; }
+  box.replaceChildren();
+  box.hidden = !items.length;
+  if (!items.length) return;
+  const sections = [["you", "Waiting on you", "ul"], ["discreto", "Discreto is working on", "ol"]];
+  for (const [owner, heading, tag] of sections) {
+    const mine = items.filter((i) => i.owner === owner);
+    if (!mine.length) continue;
+    const open = mine.filter((i) => i.status !== "done");
+    const done = mine.filter((i) => i.status === "done");
+    const sec = el("div", null, "plan-sec");
+    sec.append(el("h3", `${heading} (${open.length})`));
+    const list = el(tag, null, "plan-list");
+    for (const it of open) list.append(planRow(it));
+    sec.append(list);
+    if (done.length) {
+      const more = el("details", null, "plan-done");
+      more.append(el("summary", `${done.length} done`));
+      const dl = el("ul", null, "plan-list");
+      for (const it of done) dl.append(planRow(it));
+      more.append(dl);
+      sec.append(more);
+    }
+    box.append(sec);
+  }
+}
+
+function planRow(it) {
+  const li = el("li", null, it.status === "done" ? "plan-item done" : "plan-item");
+  const label = el("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = it.status === "done";
+  box.addEventListener("change", async () => {
+    box.disabled = true;
+    try {
+      await api(`/api/plan/${encodeURIComponent(it.id)}`, { method: "POST", body: { done: box.checked } });
+      await loadPlan();
+    } catch { box.checked = !box.checked; box.disabled = false; }
+  });
+  label.append(box, el("span", it.text));
+  li.append(label);
+  if (it.note) li.append(el("div", it.note, "meta"));
+  return li;
+}
+
 async function loadApprovals() {
+  loadPlan();
   const list = $("approvals");
   const rows = await api("/api/approvals");
   list.replaceChildren();
