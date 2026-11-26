@@ -759,7 +759,6 @@ function describeStep(r) {
       renderFilter(li, sum);
       if (searches[i]) li.append(gmailLink(searches[i], r.gmail_account, "All its mail in Gmail"));
     });
-  }
   } else if (r.tool === "gmail.labels") {
     const create = Array.isArray(a.create) ? a.create : [];
     const rename = Array.isArray(a.rename) ? a.rename : [];
