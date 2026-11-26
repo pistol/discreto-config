@@ -7,7 +7,7 @@
         content="default-src 'self'; script-src 'self'; connect-src 'self' https:; style-src 'self'; img-src 'self' data:">
   <title>Discreto</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <header>
@@ -15,6 +15,7 @@
     <button id="pause" class="danger" hidden>Pause agents</button>
   </header>
   <p id="idle-note" class="meta"></p>
+  <div id="restart-banner" class="banner" hidden>Discreto is restarting. This page reconnects by itself when it's back.</div>
 
   <section id="login" hidden>
     <p>The enclave passed verification. Enter your access token.</p>
@@ -56,21 +57,28 @@
     </section>
     <nav>
       <button data-tab="chat" class="active">Chat</button>
-      <button data-tab="cards">Cards</button>
-      <button data-tab="approvals">Approvals</button>
-      <button data-tab="memory">Memory</button>
-      <button data-tab="log">Log</button>
+      <button data-tab="cards">Cards <span class="count" id="count-cards" hidden></span></button>
+      <button data-tab="approvals">Approvals <span class="count" id="count-approvals" hidden></span></button>
+      <button data-tab="memory">Memory <span class="count dot" id="count-memory" hidden></span></button>
+      <button data-tab="log">Log <span class="count" id="count-log" hidden></span></button>
     </nav>
 
     <div id="tab-chat" class="tab">
+      <div id="chat-empty">
+        <p class="meta">Ask about your mail, what's waiting on you, or what Discreto has done. Try:</p>
+        <div id="suggestions" class="suggestions"></div>
+      </div>
       <div id="messages"></div>
+      <div id="thinking" class="thinking" hidden><span class="spinner"></span> <span id="thinking-text">Thinking...</span></div>
       <form id="chat-form">
-        <textarea id="chat-input" rows="2" placeholder="Ask something" required></textarea>
-        <button type="submit">Send</button>
+        <textarea id="chat-input" rows="2" placeholder="Ask Discreto (Enter sends, Shift+Enter for a new line)" required></textarea>
+        <button type="submit" id="chat-send" class="primary">Send</button>
+        <button type="button" id="chat-new" class="link">New chat</button>
       </form>
     </div>
 
     <div id="tab-cards" class="tab" hidden>
+      <p class="meta intro">Cards come from new mail that asks something of you: a bill to pay, an RSVP, a delivery, a trial ending, a reply. Discreto checks every 30 minutes. Mark a card <b>Handled</b> when you've dealt with it, <b>Hide</b> to clear it without doing anything, or <b>Not useful</b> so Discreto learns to skip mail like it.</p>
       <button id="triage">Check mail now</button>
       <ul id="cards"></ul>
     </div>
@@ -80,17 +88,24 @@
     </div>
 
     <div id="tab-memory" class="tab" hidden>
+      <p class="meta intro">What Discreto remembers about you and uses in every chat: preferences you tell it ("never archive mail from my bank"), and cards you marked Not useful. It saves a preference when you state one in Chat, or you can add one here.</p>
+      <form id="memory-form">
+        <input id="memory-new" type="text" placeholder="Add something Discreto should remember" autocomplete="off">
+        <button type="submit">Save</button>
+      </form>
       <input id="memory-q" type="search" placeholder="Search what I know">
       <ul id="memory"></ul>
     </div>
 
     <div id="tab-log" class="tab" hidden>
-      <p id="log-verify"></p>
+      <p id="log-verify" class="meta"></p>
+      <div id="log-runs"></div>
       <div id="log-usage"></div>
+      <div class="log-head"><strong>Activity</strong> <label class="meta"><input type="checkbox" id="log-all"> Show every entry</label></div>
       <ul id="log"></ul>
     </div>
   </main>
 
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

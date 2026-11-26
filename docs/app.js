@@ -34,25 +34,54 @@ function when(ts) {
   return new Date(ts * 1000).toLocaleString();
 }
 
+const RESTARTING = "Discreto is restarting. Try again in a minute; this page reconnects by itself.";
+
 async function api(path, { method = "GET", body } = {}) {
-  const res = await client.fetch(`${ENCLAVE_URL}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await client.fetch(`${ENCLAVE_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    watchRestart();
+    throw new Error(RESTARTING);
+  }
   if (res.status === 401) {
     signOut();
     throw new Error("Your token was not accepted.");
   }
+  if ([502, 503, 504].includes(res.status)) {
+    watchRestart();
+    throw new Error(RESTARTING);
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(`${res.status}: ${detail}`);
+    throw new Error(detail ? `${detail} (${res.status})` : `Request failed (${res.status})`);
   }
   return res.json();
+}
+
+// While Discreto restarts (an update, or a crash), show one banner and reconnect when it's back.
+let restartWatch = null;
+function watchRestart() {
+  if (restartWatch) return;
+  $("restart-banner").hidden = false;
+  restartWatch = setInterval(async () => {
+    if (!(await isUp())) return;
+    clearInterval(restartWatch);
+    restartWatch = null;
+    $("restart-banner").hidden = true;
+    loadHeader();
+    checkStorage();
+    const active = document.querySelector("nav button.active");
+    if (active) showTab(active.dataset.tab);
+  }, 5000);
 }
 
 // Verification
@@ -115,9 +144,76 @@ async function start() {
   $("pause").hidden = false;
   showTab("chat");
   checkStorage();
-  api("/api/idle").then((i) => {
-    if (i.enabled) $("idle-note").textContent = `Discreto stops itself after ${i.minutes} minutes without use.`;
-  }).catch(() => {});
+  loadHeader();
+  setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshBadges(); });
+}
+
+function since(ts) {
+  const d = new Date(ts * 1000);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function duration(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
+}
+
+async function loadHeader() {
+  const parts = [];
+  try {
+    const v = await api("/api/version");
+    parts.push(`Discreto v${v.version}`, `running since ${since(v.started)}`);
+  } catch {}
+  try {
+    const i = await api("/api/idle");
+    if (i.enabled) parts.push(`stops after ${i.minutes} minutes without use`);
+  } catch {}
+  $("idle-note").textContent = parts.join(" · ");
+  refreshBadges();
+}
+
+// Tab badges: how many approvals and cards wait, and whether Memory or Log has
+// something new since you last opened it. /api/summary doesn't count as use,
+// so an open tab never keeps Discreto running.
+const SEEN = "discreto.seen";
+let lastSummary = null;
+function seen() { try { return JSON.parse(localStorage.getItem(SEEN)) || {}; } catch { return {}; } }
+function markSeen(tab) {
+  if (!lastSummary) return;
+  const s = seen();
+  if (tab === "memory") s.memory = lastSummary.last_fact;
+  if (tab === "log") { s.log = lastSummary.last_log; s.failures = lastSummary.failures; }
+  localStorage.setItem(SEEN, JSON.stringify(s));
+  paintBadges();
+}
+function setCount(id, n, title) {
+  const b = $(id);
+  b.hidden = !n;
+  if (b.classList.contains("dot")) b.textContent = "";
+  else b.textContent = n > 99 ? "99+" : String(n || "");
+  b.title = title || "";
+}
+function paintBadges() {
+  const s = lastSummary;
+  if (!s) return;
+  const was = seen();
+  setCount("count-approvals", s.approvals, `${s.approvals} waiting for you`);
+  setCount("count-cards", s.cards, `${s.cards} open`);
+  setCount("count-memory", s.last_fact > (was.memory || 0) ? 1 : 0, "Something new was saved");
+  const fails = Math.max(0, s.failures - (was.failures || 0));
+  const logBadge = $("count-log");
+  logBadge.classList.toggle("info", !fails);
+  setCount("count-log", fails || (s.last_log > (was.log || 0) ? "new" : 0), fails ? `${fails} failed since you last looked` : "New activity");
+  document.title = s.approvals ? `(${s.approvals}) Discreto` : "Discreto";
+}
+async function refreshBadges() {
+  try { lastSummary = await api("/api/summary"); } catch { return; }
+  const active = document.querySelector("nav button.active");
+  if (active && (active.dataset.tab === "memory" || active.dataset.tab === "log")) markSeen(active.dataset.tab);
+  else paintBadges();
 }
 
 // Start a stopped instance. Tinfoil has no wake-on-request, so the web app asks
@@ -250,43 +346,95 @@ const loaders = { cards: loadCards, approvals: loadApprovals, memory: loadMemory
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== `tab-${name}`; });
-  if (loaders[name]) loaders[name]().catch((err) => showError(name, err));
+  clearError(name);
+  if (loaders[name]) loaders[name]().then(() => markSeen(name)).catch((err) => showError(name, err));
+}
+
+function clearError(name) {
+  const old = $(`tab-${name}`).querySelector(":scope > .tab-error");
+  if (old) old.remove();
 }
 
 function showError(name, err) {
-  const tab = $(`tab-${name}`);
-  tab.prepend(el("p", err.message, "meta"));
+  clearError(name);
+  $(`tab-${name}`).prepend(el("p", err.message, "tab-error"));
 }
 
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
 // Chat
 
-function addMessage(who, text) {
-  const div = el("div", null, `msg ${who}`);
+// The conversation stays in this browser tab (sessionStorage) until New chat.
+const CHAT_KEY = "discreto.chat";
+let chatLog = [];
+try { ({ taskId = null, chatLog = [] } = JSON.parse(sessionStorage.getItem(CHAT_KEY)) || {}); } catch {}
+const saveChat = () => sessionStorage.setItem(CHAT_KEY, JSON.stringify({ taskId, chatLog: chatLog.slice(-100) }));
+
+const SUGGESTIONS = ["What's waiting for my approval?", "Summarize today's mail", "What needs me this week?",
+  "Which subscriptions do I never open?", "What did Discreto change in my Gmail today?"];
+
+function addMessage(who, text, { save = true, ts = Date.now() / 1000, cls = "", approvals = 0 } = {}) {
+  const div = el("div", null, `msg ${who}${cls ? " " + cls : ""}`);
   div.append(who === "assistant" ? renderMarkdown(text) : el("span", text));
+  if (approvals) {
+    div.append(button(`Open Approvals (${approvals} waiting)`, () => showTab("approvals"), "link"));
+  }
+  div.append(el("div", since(ts), "when"));
   $("messages").append(div);
   div.scrollIntoView({ block: "end" });
+  if (save) { chatLog.push({ who, text, ts, cls, approvals }); saveChat(); }
 }
 
-$("chat-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const input = $("chat-input");
-  const message = input.value.trim();
-  if (!message) return;
-  input.value = "";
+function setThinking(on) {
+  $("thinking").hidden = !on;
+  $("chat-send").disabled = on;
+  if (!on) return;
+  const t0 = Date.now();
+  const tick = () => {
+    if ($("thinking").hidden) return;
+    const s = Math.round((Date.now() - t0) / 1000);
+    $("thinking-text").textContent = s < 4 ? "Thinking..." : `Working on it, ${s}s (reading mail can take a while)`;
+    setTimeout(tick, 1000);
+  };
+  tick();
+}
+
+async function sendChat(message) {
   addMessage("user", message);
+  setThinking(true);
   try {
     const out = await api("/api/chat", { method: "POST", body: { message, task_id: taskId } });
     taskId = out.task_id;
-    if (out.reply) addMessage("assistant", out.reply);
-    if (out.pending_approvals && out.pending_approvals.length) {
-      addMessage("assistant", `${out.pending_approvals.length} step(s) wait for your approval in Approvals.`);
-    }
+    const n = (out.pending_approvals || []).length;
+    addMessage("assistant", out.reply || "(no reply)", { approvals: n });
+    if (n) refreshBadges();
   } catch (err) {
-    addMessage("assistant", `Error: ${err.message}`);
+    addMessage("assistant", err.message, { cls: "error" });
+  } finally {
+    setThinking(false);
+    saveChat();
   }
+}
+
+$("chat-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("chat-input");
+  const message = input.value.trim();
+  if (!message || $("chat-send").disabled) return;
+  input.value = "";
+  sendChat(message);
 });
+
+$("chat-new").addEventListener("click", () => {
+  taskId = null;
+  chatLog = [];
+  saveChat();
+  $("messages").replaceChildren();
+  $("chat-input").focus();
+});
+
+for (const q of SUGGESTIONS) $("suggestions").append(button(q, () => sendChat(q)));
+for (const m of chatLog) addMessage(m.who, m.text, { save: false, ts: m.ts, cls: m.cls, approvals: m.approvals });
 
 $("chat-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -304,11 +452,26 @@ async function loadCards() {
   const open = cards.filter((c) => c.status === "open");
   if (!open.length) list.append(el("li", "Nothing needs you right now.", "meta"));
   for (const c of open) {
-    const li = el("li");
-    li.append(el("strong", c.title), el("div", c.body), el("div", `${c.action || c.category} · ${when(c.created)}`, "meta"));
+    const li = el("li", null, "card");
+    const top = el("div", null, "card-top");
+    if (c.action) top.append(chip(c.action, "kind k-label"));
+    top.append(el("strong", c.title, "card-title"));
+    li.append(top, el("div", c.body), el("div", `From new mail · ${since(c.created)}`, "meta"));
     const actions = el("div", null, "actions");
-    const set = (status) => async () => { await api(`/api/cards/${c.id}`, { method: "POST", body: { status } }); loadCards(); };
-    actions.append(button("Done", set("done")), button("Dismiss", set("dismissed")), button("Not useful", set("not_useful")));
+    const set = (status, label) => async (ev) => {
+      for (const b of actions.querySelectorAll("button")) b.disabled = true;
+      ev.target.textContent = label;
+      try { await api(`/api/cards/${c.id}`, { method: "POST", body: { status } }); } catch (err) { showError("cards", err); }
+      loadCards();
+      refreshBadges();
+    };
+    const handled = button("Handled", set("done", "Marked handled"), "primary");
+    handled.title = "You've dealt with it. The card goes away.";
+    const hide = button("Hide", set("dismissed", "Hidden"));
+    hide.title = "Clear it without doing anything.";
+    const nope = button("Not useful", set("not_useful", "Noted"));
+    nope.title = "Discreto remembers this and learns to skip mail like it.";
+    actions.append(handled, hide, nope);
     li.append(actions);
     list.append(li);
   }
@@ -323,7 +486,8 @@ $("triage").addEventListener("click", async () => {
     b.textContent = `Checked ${out.scanned}, ${out.created} new`;
     await loadCards();
   } catch (err) {
-    b.textContent = err.message;
+    showError("cards", err);
+    b.textContent = "Check mail now";
   } finally {
     setTimeout(() => { b.disabled = false; b.textContent = "Check mail now"; }, 3000);
   }
@@ -496,9 +660,37 @@ async function loadApprovals() {
   for (const key of keys) {
     const items = groups.get(key);
     const g = KINDS[key] ? KINDS[key].group : "Other steps";
-    list.append(el("li", `${g} (${items.length})`, "group-head"));
-    for (const r of items) list.append(approvalCard(r));
+    const head = el("li", null, "group-head");
+    head.append(el("span", `${g} (${items.length})`));
+    const cards = items.map((r) => approvalCard(r));
+    if (items.length > 1) head.append(approveAllButton(cards, items.length));
+    list.append(head, ...cards);
   }
+}
+
+// One tap arms it, a second tap within five seconds runs each step in turn.
+function approveAllButton(cards, n) {
+  let armed = false;
+  let timer = null;
+  const b = button(`Approve all ${n}`, async () => {
+    if (!armed) {
+      armed = true;
+      b.textContent = `Tap again to approve all ${n}`;
+      timer = setTimeout(() => { armed = false; b.textContent = `Approve all ${n}`; }, 5000);
+      return;
+    }
+    clearTimeout(timer);
+    b.disabled = true;
+    const todo = cards.filter((c) => c.approve);
+    for (let i = 0; i < todo.length; i++) {
+      b.textContent = `Approving ${i + 1} of ${todo.length}...`;
+      const ok = await todo[i].approve();
+      if (!ok) { b.textContent = `Stopped at ${i + 1} of ${todo.length}: it failed`; return; }
+    }
+    b.textContent = `All ${todo.length} approved`;
+    setTimeout(loadApprovals, 3000);
+  }, "primary");
+  return b;
 }
 
 function approvalCard(r) {
@@ -521,25 +713,54 @@ function approvalCard(r) {
     el("pre", typeof r.args === "string" ? r.args : JSON.stringify(r.args, null, 2)));
   li.append(exact, tech, el("div", `Proposed ${when(r.created)}`, "meta"));
   const actions = el("div", null, "actions");
-  const status = el("div", null, "meta");
-  const decide = (approve) => async () => {
-    for (const b of actions.querySelectorAll("button")) b.disabled = true;
-    status.textContent = approve ? "Working on it..." : "Denying...";
+  const status = el("div", null, "step-status");
+  status.hidden = true;
+  const approveBtn = button("Approve", () => decide(true), "primary");
+  const denyBtn = button("Deny", () => decide(false), "danger");
+  actions.append(approveBtn, denyBtn);
+  // Returns true when the step ran (or was denied) without an error.
+  const decide = async (approve) => {
+    actions.hidden = true;
+    li.classList.add("working");
+    status.hidden = false;
+    status.className = "step-status";
+    status.replaceChildren(el("span", null, "spinner"),
+      el("span", approve ? " Approved. Making the change in Gmail, big steps can take a minute..." : " Denying..."));
+    let ok = true;
     try {
       const out = await api(`/api/approvals/${r.id}`, { method: "POST", body: { approve } });
       const res = out && out.result;
-      if (!approve) status.textContent = "Denied.";
-      else if (res && res.error) status.textContent = `Failed: ${res.error}`;
-      else if (res && typeof res.changed === "number") status.textContent = `Done. ${res.changed} messages changed.`;
-      else status.textContent = "Done.";
+      if (!approve) status.textContent = "Denied. Nothing changed.";
+      else if (res && res.error) { ok = false; status.textContent = `Failed: ${res.error}`; }
+      else status.textContent = `Done. ${resultWords(r.tool, res)}`;
     } catch (err) {
+      ok = false;
       status.textContent = `Failed: ${err.message}`;
     }
-    setTimeout(loadApprovals, 4000);
+    li.classList.remove("working");
+    li.classList.add(ok ? "done" : "failed");
+    status.classList.add(ok ? "ok" : "bad");
+    if (!ok) { actions.hidden = false; approveBtn.textContent = "Try again"; }
+    else delete li.approve;
+    refreshBadges();
+    return ok;
   };
-  actions.append(button("Approve", decide(true), "primary"), button("Deny", decide(false), "danger"));
+  li.approve = () => decide(true);
   li.append(status, actions);
   return li;
+}
+
+function resultWords(tool, res) {
+  if (!res || typeof res !== "object") return "";
+  const n = (x) => Number(x).toLocaleString();
+  const bits = [];
+  if (typeof res.changed === "number") bits.push(`${n(res.changed)} messages changed`);
+  if (res.left_inbox) bits.push(`${n(res.left_inbox)} left the inbox`);
+  if (res.unstarred) bits.push(`${n(res.unstarred)} unstarred`);
+  if (typeof res.deleted === "number") bits.push(`${n(res.deleted)} filters deleted`);
+  if (res.filter_id && tool === "gmail.filter") bits.push("filter created");
+  if (res.more_left) bits.push("more matched than one step covers, so another step is needed");
+  return bits.length ? bits.join(", ") + "." : "";
 }
 
 // Memory
@@ -549,16 +770,29 @@ async function loadMemory() {
   const list = $("memory");
   const facts = await api(`/api/memory${q ? `?q=${encodeURIComponent(q)}` : ""}`);
   list.replaceChildren();
-  if (!facts.length) list.append(el("li", "Nothing saved yet.", "meta"));
+  if (!facts.length) list.append(el("li", q ? "Nothing matches." : "Nothing saved yet. Tell Discreto a preference in Chat, or add one above.", "meta"));
+  const from = { you: "Added by you", card: "From card feedback", agent: "Learned in chat" };
   for (const f of facts) {
     const li = el("li");
-    li.append(el("strong", f.subject), el("div", f.statement), el("div", `${f.source || ""} · ${when(f.created)}`, "meta"));
+    li.append(el("div", f.statement), el("div", `${from[f.source] || f.source || "Learned in chat"} · ${since(f.created)}`, "meta"));
     const actions = el("div", null, "actions");
     actions.append(button("Forget", async () => { await api(`/api/memory/${f.id}`, { method: "DELETE" }); loadMemory(); }, "danger"));
     li.append(actions);
     list.append(li);
   }
 }
+
+$("memory-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const statement = $("memory-new").value.trim();
+  if (!statement) return;
+  try {
+    await api("/api/memory", { method: "POST", body: { subject: "note", statement } });
+    $("memory-new").value = "";
+    await loadMemory();
+    refreshBadges();
+  } catch (err) { showError("memory", err); }
+});
 
 let memoryTimer = null;
 $("memory-q").addEventListener("input", () => {
@@ -608,36 +842,114 @@ function usageSummary(entries) {
   box.append(el("strong", `Models used in the last ${runs} run${runs === 1 ? "" : "s"}`), usageTable(usageRows(byModel)));
 }
 
+const TOOL_WORDS = {
+  "mail.search": "read recent mail", "mail.read": "read a message", "mail.stats": "measured the mailbox",
+  "mail.scan": "scanned the mailbox", "gmail.count": "counted matching mail", "gmail.filters": "listed Gmail filters",
+  "gmail.archive": "archive", "gmail.label": "label mail", "gmail.filter": "new filter", "gmail.trash": "move to Trash",
+  "gmail.filter_delete": "delete filters", "gmail.apply_filter": "apply a filter to past mail",
+  "approvals.list": "checked what waits for you", "memory.read": "looked up memory", "memory.write": "saved to memory",
+  "cards.create": "made a card", "calendar.list": "read the calendar",
+};
+const toolWords = (t) => TOOL_WORDS[t] || t || "";
+const first = (text, n = 220) => (text && text.length > n ? text.slice(0, n - 1) + "..." : text || "");
+function parsePreview(p) { try { return JSON.parse(p); } catch { return null; } }
+
+// One plain sentence per entry; the raw entry stays one tap away.
+function logLine(e) {
+  const d = e.data || {};
+  switch (e.kind) {
+    case "proposal":
+      if (d.verdict === "ask") return { text: `Proposed for your approval: ${first(d.summary || toolWords(d.tool))}`, show: true };
+      if (d.verdict === "deny") return { text: `Blocked by policy: ${toolWords(d.tool)} (${d.reason})`, show: true, bad: true };
+      return { text: `Agent ${toolWords(d.tool)}`, show: false };
+    case "approval":
+      return { text: `You ${d.approved ? "approved" : "denied"}: ${first(d.summary || toolWords(d.tool))}`, show: true };
+    case "result": {
+      const r = parsePreview(d.preview);
+      const err = r && r.error;
+      if (err) return { text: `Failed, ${toolWords(d.tool)}: ${first(String(err))}`, show: true, bad: true };
+      if (String(d.tool || "").startsWith("gmail.") && !["gmail.count", "gmail.filters"].includes(d.tool)) {
+        return { text: `Done, ${toolWords(d.tool)}. ${resultWords(d.tool, r)}`, show: true };
+      }
+      return { text: `Agent ${toolWords(d.tool)}`, show: false };
+    }
+    case "model-usage": {
+      const t = d.totals || {};
+      return { text: `${d.run === "/triage" ? "Inbox check" : "Chat"} via ${d.via || "?"}: ${num(t.calls)} model calls, ${((t.ms || 0) / 1000).toFixed(1)}s`, show: true, usage: true };
+    }
+    case "mail-scan": return { text: `Mailbox scan ${d.event}${d.error ? `: ${first(d.error)}` : ""}`, show: true, bad: !!d.error };
+    case "storage": return { text: `Storage ${d.event}${d.error ? `: ${first(d.error)}` : ""}`, show: true, bad: !!d.error };
+    case "idle": return { text: `Idle stop: ${d.event}${d.idle_minutes ? ` after ${d.idle_minutes} minutes` : ""}${d.error ? `: ${first(d.error)}` : ""}`, show: true, bad: !!d.error };
+    case "pause": return { text: d.paused ? "Agents paused" : "Agents resumed", show: true };
+    case "google": return { text: `Gmail: ${d.event}`, show: true, bad: /failed/.test(d.event || "") };
+    case "gmail-log": return { text: `Couldn't write the Gmail log entry: ${first(d.error)}`, show: true, bad: true };
+    case "mcp":
+      if (d.event) return { text: `Claude connector: ${d.event}`, show: true };
+      return { text: `Claude used ${d.tool}`, show: false };
+    default: return { text: `${e.kind} ${d.tool || d.event || ""}`, show: false };
+  }
+}
+
+async function loadRuns() {
+  const box = $("log-runs");
+  box.replaceChildren();
+  let out;
+  try { out = await api("/api/instances"); } catch { return; }
+  const rows = out.instances || [];
+  if (!rows.length) return;
+  box.append(el("strong", "Discreto runs"));
+  const table = el("table");
+  const head = el("tr");
+  for (const h of ["Version", "Started", "Ran for", "Ended"]) head.append(el("th", h));
+  table.append(head);
+  for (const r of rows.slice(0, 15)) {
+    const tr = el("tr");
+    const now = r.id === out.current;
+    tr.append(el("td", `v${r.version}`), el("td", since(r.started)), el("td", duration(r.last_seen - r.started)),
+      el("td", now ? "running now" : (r.ended || `last seen ${since(r.last_seen)}`), now ? "now" : ""));
+    table.append(tr);
+  }
+  const wrap = el("div", null, "table-wrap");
+  wrap.append(table);
+  box.append(wrap);
+  if (rows.some((r) => !r.ended && r.id !== out.current)) {
+    box.append(el("div", "Runs with no end were stopped by an update or a restart; the time is up to their last check-in.", "meta"));
+  }
+}
+
 async function loadLog() {
   const [entries, check] = await Promise.all([api("/api/log"), api("/api/log/verify")]);
   $("log-verify").textContent = check.ok
-    ? `Run log intact: ${check.entries} entries, chain and signatures check out.`
+    ? `Run log intact: ${check.entries} entries since this run started, chain and signatures check out.`
     : `Run log check failed: ${check.error}`;
-  const shown = entries.slice(-200);
+  loadRuns();
+  const shown = entries.slice(-300);
   usageSummary(shown);
+  const all = $("log-all").checked;
   const list = $("log");
   list.replaceChildren();
+  let hidden = 0;
   for (const e of shown.reverse()) {
-    const li = el("li");
+    const line = logLine(e);
+    if (!line.show && !all) { hidden += 1; continue; }
+    const li = el("li", null, line.bad ? "bad" : "");
+    li.append(el("div", line.text, "line"), el("div", since(e.ts), "meta"));
     const { user, ...data } = e.data;
-    const when = `${new Date(e.ts * 1000).toLocaleString()} · task ${e.task_id}`;
+    const det = el("details");
+    det.append(el("summary", "Details"));
     if (e.kind === "model-usage") {
-      const t = data.totals || {};
-      li.append(el("strong", `model usage · ${data.run || ""} via ${data.via || ""}`), el("div", when, "meta"),
-        el("div", `${num(t.calls)} calls · ${num(t.tokens_in)} tokens in · ${num(t.tokens_out)} tokens out · ${((t.ms || 0) / 1000).toFixed(1)}s`
-          + (t.unmetered_calls ? ` · ${t.unmetered_calls} call(s) reported no token counts` : ""), "meta"),
-        usageTable(usageRows(data.by_model)));
-      const calls = el("details");
-      calls.append(el("summary", "Each call"),
-        usageTable((data.calls || []).map((c) => ({ ...c, calls: 1, role: c.role + (c.fallback_from ? ` (fallback from ${c.fallback_from})` : "") + (c.error ? " (failed)" : "") }))));
-      li.append(calls);
+      det.append(usageTable(usageRows(data.by_model)));
+      det.append(usageTable((data.calls || []).map((c) => ({ ...c, calls: 1, role: c.role + (c.fallback_from ? ` (fallback from ${c.fallback_from})` : "") + (c.error ? " (failed)" : "") }))));
     } else {
-      li.append(el("strong", `${e.kind} · ${data.tool || ""}`), el("div", when, "meta"));
-      li.append(el("pre", JSON.stringify(data, null, 2)));
+      det.append(el("pre", JSON.stringify({ kind: e.kind, task: e.task_id, ...data }, null, 2)));
     }
+    li.append(det);
     list.append(li);
   }
+  if (hidden) list.append(el("li", `${hidden} routine agent steps hidden. Tick "Show every entry" to see them.`, "meta"));
 }
+
+$("log-all").addEventListener("change", () => loadLog().catch((err) => showError("log", err)));
 
 // Pause
 
