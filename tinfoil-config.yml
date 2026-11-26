@@ -18,24 +18,22 @@ networks:
       - kds-proxy.tinfoil.sh
       - tdx-proxy.tinfoil.sh
       - tuf-repo-cdn.sigstore.dev
-  # Broker egress: Gmail over IMAP (read only), and the Gmail API for approved cleanup.
+  # Broker egress (Tinfoil allows one egress network per container): Gmail over IMAP
+  # (read only), the Gmail API for approved cleanup, and Tinfoil's admin API, used
+  # only to stop this instance after an hour without use.
   mail:
     egress: allowlist
     allow:
       - imap.gmail.com
       - oauth2.googleapis.com
       - gmail.googleapis.com
-  # Broker egress: Tinfoil's admin API, only to stop this instance after an hour without use.
-  control:
-    egress: allowlist
-    allow:
       - api.tinfoil.sh
 
 containers:
   - name: broker
     image: "ghcr.io/pistol/discreto@sha256:dc988c6ed31d274a4e14267764f5c6048dae2ff5255b9d4123be3a9db34c3ac8"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
-    networks: [internal, mail, control]
+    networks: [internal, mail]
     env:
       - AGENT_URL: "http://agent:8001"
       - POLICY_PATH: "/app/config/policy.yml"
