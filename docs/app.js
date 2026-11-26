@@ -153,6 +153,7 @@ async function start() {
   showTab(tabFromHash());
   offerPasskey();
   loadHeader();
+  loadModels();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshBadges(); });
 }
@@ -209,13 +210,15 @@ function paintBadges() {
   if (!s) return;
   const was = seen();
   setCount("count-approvals", s.approvals, `${s.approvals} waiting for you`);
+  setCount("count-chat", s.decisions || 0, `${s.decisions} decisions wait on you`);
   setCount("count-cards", s.cards, `${s.cards} open`);
   setCount("count-memory", s.last_fact > (was.memory || 0) ? 1 : 0, "Something new was saved");
   const fails = Math.max(0, s.failures - (was.failures || 0));
   const logBadge = $("count-log");
   logBadge.classList.toggle("info", !fails);
   setCount("count-log", fails || (s.last_log > (was.log || 0) ? "new" : 0), fails ? `${fails} failed since you last looked` : "New activity");
-  document.title = s.approvals ? `(${s.approvals}) Discreto` : "Discreto";
+  const waiting = (s.approvals || 0) + (s.decisions || 0);
+  document.title = waiting ? `(${waiting}) Discreto` : "Discreto";
 }
 async function refreshBadges() {
   try { lastSummary = await api("/api/summary"); } catch { return; }
@@ -478,24 +481,249 @@ window.addEventListener("hashchange", () => { if (!$("app").hidden) showTab(tabF
 // Chat
 
 // The conversation stays in this browser tab (sessionStorage) until New chat.
+// Earlier turns go back with each message, so a follow-up keeps its context.
 const CHAT_KEY = "discreto.chat";
 let chatLog = [];
 try { ({ taskId = null, chatLog = [] } = JSON.parse(sessionStorage.getItem(CHAT_KEY)) || {}); } catch {}
 const saveChat = () => sessionStorage.setItem(CHAT_KEY, JSON.stringify({ taskId, chatLog: chatLog.slice(-100) }));
 
 const SUGGESTIONS = ["What's waiting for my approval?", "Summarize today's mail", "What needs me this week?",
-  "Which subscriptions do I never open?", "What did Discreto change in my Gmail today?"];
+  "Which subscriptions do I never open?"];
 
-function addMessage(who, text, { save = true, ts = Date.now() / 1000, cls = "", approvals = 0 } = {}) {
-  const div = el("div", null, `msg ${who}${cls ? " " + cls : ""}`);
-  div.append(who === "assistant" ? renderMarkdown(text) : el("span", text));
-  if (approvals) {
-    div.append(button(`Open Approvals (${approvals} waiting)`, () => showTab("approvals"), "link"));
+const SVG_NS = "http://www.w3.org/2000/svg";
+function icon(paths) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "ico");
+  svg.setAttribute("aria-hidden", "true");
+  for (const d of paths) {
+    const p = document.createElementNS(SVG_NS, "path");
+    p.setAttribute("d", d);
+    svg.append(p);
   }
-  div.append(el("div", since(ts), "when"));
+  return svg;
+}
+const ICON_SHUFFLE = ["M16 3h5v5", "M4 20L21 3", "M21 16v5h-5", "M15 15l6 6", "M4 4l5 5"];
+const ICON_CHECK = ["M4 4h16v16H4z", "M8 12l3 3 5-6"];
+const ICON_CHEV_DOWN = ["M6 9l6 6 6-6"];
+const ICON_CHEV_RIGHT = ["M9 6l6 6-6 6"];
+
+function greet() {
+  const h = new Date().getHours();
+  $("greeting").textContent = h < 5 ? "Good evening!" : h < 12 ? "Good morning!" : h < 18 ? "Good afternoon!" : "Good evening!";
+}
+
+// Model picker, after Tinfoil Chat's: Auto with an intelligence slider, the
+// main models, an effort setting, and the rest under Other models. Context
+// size and price come from Discreto's model list.
+const MODEL_KEY = "discreto.model";
+let offer = null;   // { default, auto_levels, models }
+let pick = (() => { try { return JSON.parse(localStorage.getItem(MODEL_KEY)) || {}; } catch { return {}; } })();
+let showOther = false;
+let showEffort = false;
+
+function fmtContext(n) { return n >= 1e6 ? `${n / 1e6}M` : `${Math.round(n / 1000)}K`; }
+function fmtPrice(n) { return `$${n < 1 ? n.toFixed(2) : n % 1 ? n.toFixed(2) : n.toFixed(0)}`; }
+function fmtCost(n) { return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`; }
+function fmtTokens(n) { return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : `${n}`; }
+const modelById = (id) => (offer?.models || []).find((m) => m.id === id);
+const EFFORT_WORDS = { none: "Off", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+
+function currentPick() {
+  if (!offer) return { model: null, effort: null };
+  const ids = offer.models.map((m) => m.id);
+  let model = pick.model === "auto" && offer.auto_levels.length ? "auto" : ids.includes(pick.model) ? pick.model : offer.default;
+  let effort = pick.effort ?? null;
+  if (model === "auto") {
+    const lv = offer.auto_levels.map((l) => l.id);
+    if (!lv.includes(effort)) effort = lv.includes("high") ? "high" : lv[0];
+  } else if (!(modelById(model)?.effort || []).includes(effort)) effort = null;
+  return { model, effort };
+}
+
+function setPick(next) {
+  pick = { ...currentPick(), ...next };
+  localStorage.setItem(MODEL_KEY, JSON.stringify(pick));
+  renderTrigger();
+  renderModelMenu();
+}
+
+function renderTrigger() {
+  const { model, effort } = currentPick();
+  let label = "Model";
+  if (model === "auto") label = `Auto · ${offer.auto_levels.find((l) => l.id === effort)?.label || ""}`;
+  else if (model) label = (modelById(model)?.label || model) + (effort ? ` · ${EFFORT_WORDS[effort] || effort}` : "");
+  $("model-trigger-label").textContent = label;
+}
+
+function modelIcon(m) {
+  const span = el("span", (m.label || m.id).replace(/[^A-Za-z0-9]/g, "").slice(0, 1).toUpperCase(), "m-icon");
+  span.dataset.hue = String([...m.id].reduce((a, c) => a + c.charCodeAt(0), 0) % 6);
+  return span;
+}
+
+function menuRow(content, { selected = false, onPick, cls = "" } = {}) {
+  const b = el("button", null, `m-row${selected ? " selected" : ""}${cls ? " " + cls : ""}`);
+  b.type = "button";
+  b.setAttribute("role", "menuitemradio");
+  b.setAttribute("aria-checked", String(selected));
+  b.append(...content);
+  if (selected) b.append(icon(ICON_CHECK));
+  b.addEventListener("click", (e) => { e.stopPropagation(); onPick(); });
+  return b;
+}
+
+function modelRow(m, selected) {
+  const text = el("span", null, "m-text");
+  text.append(el("span", m.label, "m-label"));
+  if (selected && m.description) text.append(el("span", m.description, "m-desc"));
+  text.append(el("span", `${fmtContext(m.context)} context · ${fmtPrice(m.price_in)} in / ${fmtPrice(m.price_out)} out per 1M`, "m-meta"));
+  if (m.experimental) text.append(el("span", "Experimental", "m-badge"));
+  return menuRow([modelIcon(m), text], { selected, onPick: () => { setPick({ model: m.id, effort: null }); closeModelMenu(); } });
+}
+
+function renderModelMenu() {
+  const menu = $("model-menu");
+  if (!offer) { menu.replaceChildren(el("p", "Loading models...", "m-note")); return; }
+  const { model, effort } = currentPick();
+  const parts = [];
+  if (offer.auto_levels.length) {
+    const auto = el("span", null, "m-text");
+    auto.append(el("span", "Auto", "m-label"));
+    parts.push(menuRow([icon(ICON_SHUFFLE), auto], { selected: model === "auto", onPick: () => setPick({ model: "auto", effort: null }) }));
+    if (model === "auto") {
+      const lv = offer.auto_levels;
+      const i = Math.max(0, lv.findIndex((l) => l.id === effort));
+      const box = el("div", null, "m-intel");
+      const head = el("div", null, "m-intel-head");
+      head.append(el("span", "Intelligence"), el("span", lv[i].label, "m-muted"));
+      const track = el("div", null, "stepper");
+      track.setAttribute("role", "slider");
+      track.setAttribute("aria-label", "Auto intelligence");
+      track.setAttribute("aria-valuemin", "0");
+      track.setAttribute("aria-valuemax", String(lv.length - 1));
+      track.setAttribute("aria-valuenow", String(i));
+      track.setAttribute("aria-valuetext", lv[i].label);
+      track.tabIndex = 0;
+      track.style.setProperty("--fill", `${((i + 0.5) / lv.length) * 100}%`);
+      lv.forEach((l, n) => {
+        const stop = el("button", null, `stop${n === i ? " on" : ""}${n < i ? " under" : ""}`);
+        stop.type = "button";
+        stop.title = l.label;
+        stop.addEventListener("click", (e) => { e.stopPropagation(); setPick({ model: "auto", effort: l.id }); });
+        track.append(stop);
+      });
+      track.addEventListener("keydown", (e) => {
+        const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        const n = Math.min(lv.length - 1, Math.max(0, i + d));
+        setPick({ model: "auto", effort: lv[n].id });
+        $("model-menu").querySelector(".stepper")?.focus();
+      });
+      box.append(head, track, el("p", "Higher intelligence picks a more capable model and thinks longer. Tinfoil picks the model for each step, and the reply says which one ran.", "m-note"));
+      parts.push(box);
+    }
+    parts.push(el("div", null, "m-div"));
+  }
+  const top = offer.models.filter((m) => !m.other || m.id === model);
+  const other = offer.models.filter((m) => m.other && m.id !== model);
+  for (const m of top) parts.push(modelRow(m, m.id === model));
+  const cur = model !== "auto" ? modelById(model) : null;
+  if (cur && cur.effort.length) {
+    parts.push(el("div", null, "m-div"));
+    const row = el("button", null, "m-row m-effort");
+    row.type = "button";
+    row.setAttribute("aria-expanded", String(showEffort));
+    const side = el("span", null, "m-side");
+    side.append(el("span", effort ? (EFFORT_WORDS[effort] || effort) : "Default", "m-muted"), icon(showEffort ? ICON_CHEV_DOWN : ICON_CHEV_RIGHT));
+    row.append(el("span", "Thinking effort", "m-label grow"), side);
+    row.addEventListener("click", (e) => { e.stopPropagation(); showEffort = !showEffort; renderModelMenu(); });
+    parts.push(row);
+    if (showEffort) {
+      const list = el("div", null, "m-effort-list");
+      list.append(menuRow([el("span", "Default", "m-label"), el("span", "the model's own", "m-muted")], { selected: !effort, onPick: () => setPick({ effort: null }) }));
+      for (const e of cur.effort) list.append(menuRow([el("span", EFFORT_WORDS[e] || e, "m-label")], { selected: effort === e, onPick: () => setPick({ effort: e }) }));
+      list.append(el("p", "Higher effort means more thorough answers, but takes longer and costs more.", "m-note"));
+      parts.push(list);
+    }
+  }
+  if (other.length) {
+    parts.push(el("div", null, "m-div"));
+    const row = el("button", null, "m-row");
+    row.type = "button";
+    row.setAttribute("aria-expanded", String(showOther));
+    row.append(el("span", "Other models", "m-label grow"), icon(showOther ? ["M6 15l6-6 6 6"] : ICON_CHEV_DOWN));
+    row.addEventListener("click", (e) => { e.stopPropagation(); showOther = !showOther; renderModelMenu(); });
+    parts.push(row);
+    if (showOther) for (const m of other) parts.push(modelRow(m, false));
+  }
+  menu.replaceChildren(...parts);
+}
+
+function openModelMenu() {
+  renderModelMenu();
+  $("model-menu").hidden = false;
+  $("model-trigger").setAttribute("aria-expanded", "true");
+}
+function closeModelMenu() {
+  $("model-menu").hidden = true;
+  showEffort = false;
+  $("model-trigger").setAttribute("aria-expanded", "false");
+}
+$("model-trigger").addEventListener("click", (e) => {
+  e.stopPropagation();
+  $("model-menu").hidden ? openModelMenu() : closeModelMenu();
+});
+$("model-menu").addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => { if (!$("model-menu").hidden) closeModelMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("model-menu").hidden) closeModelMenu(); });
+
+async function loadModels() {
+  try {
+    offer = await api("/api/models");
+  } catch {
+    offer = null;
+    $("model-trigger-label").textContent = "Default model";
+    return;
+  }
+  renderTrigger();
+}
+
+// What one reply used: the model or models that ran, tokens, list-price cost and time.
+function usageLine(u) {
+  if (!u) return "";
+  const parts = [];
+  if (u.models?.length) parts.push(u.models.join(", "));
+  if (u.tokens_in != null) parts.push(`${fmtTokens(u.tokens_in)} in / ${fmtTokens(u.tokens_out || 0)} out`);
+  if (u.cost != null) parts.push(fmtCost(u.cost));
+  if (u.ms) parts.push(`${(u.ms / 1000).toFixed(1)}s`);
+  return parts.join(" · ");
+}
+
+function addMessage(who, text, { save = true, ts = Date.now() / 1000, cls = "", approvals = 0, usage = null, thinking = "" } = {}) {
+  const div = el("div", null, `msg ${who}${cls ? " " + cls : ""}`);
+  if (who === "assistant" && thinking) {
+    const d = el("details", null, "thought");
+    d.append(el("summary", usage?.ms ? `Thought for ${Math.max(1, Math.round(usage.ms / 1000))}s` : "Thought process"), el("div", thinking, "thought-body"));
+    div.append(d);
+  }
+  div.append(who === "assistant" ? renderMarkdown(text) : el("span", text, "bubble"));
+  if (approvals) div.append(button(`Open Approvals (${approvals} waiting)`, () => showTab("approvals"), "link"));
+  const foot = el("div", null, "when");
+  foot.append(el("span", since(ts)));
+  const line = usageLine(usage);
+  if (line) foot.append(el("span", ` · ${line}`, "usage"));
+  div.append(foot);
   $("messages").append(div);
   div.scrollIntoView({ block: "end" });
-  if (save) { chatLog.push({ who, text, ts, cls, approvals }); saveChat(); }
+  if (save) { chatLog.push({ who, text, ts, cls, approvals, usage, thinking }); saveChat(); }
+  syncEmpty();
+}
+
+function syncEmpty() {
+  const empty = !$("messages").children.length;
+  $("tab-chat").classList.toggle("is-empty", empty);
 }
 
 function setThinking(on) {
@@ -512,14 +740,29 @@ function setThinking(on) {
   tick();
 }
 
+function historyFor() {
+  return chatLog.filter((m) => !m.cls && (m.who === "user" || m.who === "assistant"))
+    .slice(-20).map((m) => ({ role: m.who, content: String(m.text).slice(0, 4000) }));
+}
+
+function summarizeUsage(out) {
+  const u = out.usage || {};
+  const t = u.totals || {};
+  const models = Object.keys(u.by_model || {}).map((id) => modelById(id)?.label || id);
+  return { models, tokens_in: t.tokens_in ?? null, tokens_out: t.tokens_out ?? null, ms: t.ms || 0,
+    cost: typeof out.cost_usd === "number" ? out.cost_usd : null };
+}
+
 async function sendChat(message) {
+  const history = historyFor();
   addMessage("user", message);
   setThinking(true);
+  const { model, effort } = currentPick();
   try {
-    const out = await api("/api/chat", { method: "POST", body: { message, task_id: taskId } });
+    const out = await api("/api/chat", { method: "POST", body: { message, task_id: taskId, model, effort, history } });
     taskId = out.task_id;
     const n = (out.pending_approvals || []).length;
-    addMessage("assistant", out.reply || "(no reply)", { approvals: n });
+    addMessage("assistant", out.reply || "(no reply)", { approvals: n, usage: summarizeUsage(out), thinking: out.thinking || "" });
     if (n) refreshBadges();
   } catch (err) {
     addMessage("assistant", err.message, { cls: "error" });
@@ -529,12 +772,78 @@ async function sendChat(message) {
   }
 }
 
+// Decisions: what waits on you, asked in the chat with an option button each.
+// Picking an option runs the steps Discreto froze for it, which is your
+// approval, and sets the other options' steps aside.
+async function loadDecisions() {
+  let items = [];
+  try { items = await api("/api/plan"); } catch { return; }
+  const open = items.filter((i) => i.owner === "you" && i.status !== "done" && i.options?.length);
+  const box = $("decisions");
+  box.replaceChildren();
+  box.hidden = !open.length;
+  if (!open.length) return;
+  box.append(el("div", open.length === 1 ? "1 decision waits on you" : `${open.length} decisions wait on you`, "dec-head"));
+  for (const it of open) box.append(decisionCard(it));
+}
+
+function decisionCard(it) {
+  const card = el("div", null, "decision");
+  card.append(el("div", it.text, "dec-q"));
+  if (it.note) card.append(el("div", it.note, "dec-note"));
+  if (it.chosen?.note) card.append(el("div", `Last time: ${it.chosen.label}, ${it.chosen.note}.`, "dec-note bad"));
+  const opts = el("div", null, "dec-opts");
+  it.options.forEach((o, n) => {
+    const row = el("div", null, "dec-opt");
+    const b = button(o.label, () => choose(it, n, card), "dec-btn");
+    if (o.unavailable) { b.disabled = true; b.title = "This option's steps are gone. Ask Discreto to propose it again."; }
+    row.append(b);
+    const what = el("div", null, "dec-what");
+    if (o.detail) what.append(el("div", o.detail));
+    for (const st of o.steps || []) {
+      what.append(el("div", st.reason));
+      if (st.gmail_search) what.append(gmailLink(st.gmail_search, it.gmail_account, "See this mail in Gmail"));
+    }
+    if (!o.steps?.length && !o.detail) what.append(el("div", o.done === false ? "Asks again later." : "Changes nothing in Gmail."));
+    row.append(what);
+    opts.append(row);
+  });
+  card.append(opts);
+  return card;
+}
+
+async function choose(it, n, card) {
+  card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const status = el("div", `Running: ${it.options[n].label}...`, "dec-status");
+  card.append(status);
+  try {
+    const out = await api(`/api/plan/${encodeURIComponent(it.id)}/choose`, { method: "POST", body: { option: n } });
+    const words = (out.results || []).map((r) => r.result?.error ? `Failed: ${r.result.error}` : resultWords(r.tool, r.result)).filter(Boolean);
+    const msg = `You chose **${out.chosen}**.${words.length ? " " + words.join(" ") : ""}${out.status === "failed" ? " A step failed, so the rest didn't run." : ""}`;
+    addMessage("assistant", msg, { cls: out.status === "failed" ? "error" : "" });
+    refreshBadges();
+  } catch (err) {
+    status.textContent = err.message;
+    status.classList.add("bad");
+    card.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+    return;
+  }
+  loadDecisions();
+}
+
+function autoGrow() {
+  const t = $("chat-input");
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight, 240)}px`;
+}
+
 $("chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = $("chat-input");
   const message = input.value.trim();
   if (!message || $("chat-send").disabled) return;
   input.value = "";
+  autoGrow();
   sendChat(message);
 });
 
@@ -543,14 +852,20 @@ $("chat-new").addEventListener("click", () => {
   chatLog = [];
   saveChat();
   $("messages").replaceChildren();
+  syncEmpty();
+  greet();
   $("chat-input").focus();
 });
 
-for (const q of SUGGESTIONS) $("suggestions").append(button(q, () => sendChat(q)));
-for (const m of chatLog) addMessage(m.who, m.text, { save: false, ts: m.ts, cls: m.cls, approvals: m.approvals });
+for (const q of SUGGESTIONS) $("suggestions").append(button(q, () => sendChat(q), "chip-btn"));
+for (const m of chatLog) addMessage(m.who, m.text, { save: false, ts: m.ts, cls: m.cls, approvals: m.approvals, usage: m.usage, thinking: m.thinking });
+greet();
+syncEmpty();
+loaders.chat = loadDecisions;
 
+$("chat-input").addEventListener("input", autoGrow);
 $("chat-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     $("chat-form").requestSubmit();
   }
@@ -832,6 +1147,8 @@ function planRow(it) {
   label.append(box, el("span", it.text));
   li.append(label);
   if (it.note) li.append(el("div", it.note, "meta"));
+  if (it.options?.length && it.status !== "done") li.append(button("Decide in Chat", () => showTab("chat"), "link"));
+  if (it.chosen) li.append(el("div", `You chose: ${it.chosen.label}${it.chosen.note ? ` (${it.chosen.note})` : ""}`, "meta"));
   return li;
 }
 
@@ -973,6 +1290,7 @@ function resultWords(tool, res) {
   if (res.labels_deleted) bits.push(`${n(res.labels_deleted)} labels deleted`);
   if (res.labels_changed) bits.push(`${n(res.labels_changed)} labels put back`);
   if (res.problems && res.problems.length) bits.push(`problems: ${res.problems.join("; ")}`);
+  if (res.kept_replied) bits.push(`${n(res.kept_replied)} kept because you replied in their thread`);
   if (res.more_left) bits.push("more matched than one step covers, so another step is needed");
   return bits.length ? bits.join(", ") + "." : "";
 }
