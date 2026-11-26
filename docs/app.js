@@ -5,13 +5,14 @@
 // textContent, never as HTML, because card text comes from email. Chat replies
 // go through renderMarkdown, which builds DOM nodes the same way.
 import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
-import { ENCLAVE_URL, CONFIG_REPO } from "./config.js?v=3";
+import { ENCLAVE_URL, CONFIG_REPO, START_REPO, START_WORKFLOW } from "./config.js?v=4";
 import { renderMarkdown } from "./markdown.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
 let client = null;
 const STORAGE_KEY = "discreto.storageKey";
+const GITHUB_KEY = "discreto.githubToken";
 let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
 let taskId = null;
 
@@ -87,6 +88,7 @@ function signOut() {
   token = null;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(GITHUB_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
   $("app").hidden = true;
   $("pause").hidden = true;
@@ -113,7 +115,75 @@ async function start() {
   $("pause").hidden = false;
   showTab("chat");
   checkStorage();
+  api("/api/idle").then((i) => {
+    if (i.enabled) $("idle-note").textContent = `Discreto stops itself after ${i.minutes} minutes without use.`;
+  }).catch(() => {});
 }
+
+// Start a stopped instance. Tinfoil has no wake-on-request, so the web app asks
+// GitHub to run the deploy workflow, then waits for the enclave to answer.
+// Only /healthz is called before verification, and it carries nothing.
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function isUp() {
+  try {
+    const r = await fetch(`${ENCLAVE_URL}/healthz`, { cache: "no-store" });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+function showStopped() {
+  const badge = $("verify");
+  badge.textContent = "Stopped";
+  badge.className = "badge pending";
+  $("gh-token").hidden = Boolean(localStorage.getItem(GITHUB_KEY));
+  $("stopped").hidden = false;
+}
+
+$("start-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const msg = $("stopped-msg");
+  const btn = $("start-btn");
+  const gh = localStorage.getItem(GITHUB_KEY) || $("gh-token").value.trim();
+  if (!gh) { msg.textContent = "Enter a GitHub token first."; return; }
+  btn.disabled = true;
+  msg.textContent = "Asking GitHub to start Discreto...";
+  let res;
+  try {
+    res = await fetch(`https://api.github.com/repos/${START_REPO}/actions/workflows/${START_WORKFLOW}/dispatches`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${gh}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { action: "deploy" } }),
+    });
+  } catch (err) {
+    msg.textContent = `Couldn't reach GitHub: ${err.message}`;
+    btn.disabled = false;
+    return;
+  }
+  if (!res.ok) {
+    if ([401, 403, 404].includes(res.status)) {
+      localStorage.removeItem(GITHUB_KEY);
+      $("gh-token").hidden = false;
+    }
+    msg.textContent = `GitHub didn't start it (${res.status}). Check that the token has Actions access to ${START_REPO}.`;
+    btn.disabled = false;
+    return;
+  }
+  localStorage.setItem(GITHUB_KEY, gh);
+  $("gh-token").value = "";
+  $("gh-token").hidden = true;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 240000) {
+    await sleep(3000);
+    msg.textContent = `Starting Discreto... ${Math.round((Date.now() - t0) / 1000)}s`;
+    if (await isUp()) { location.reload(); return; }
+  }
+  msg.textContent = `Discreto isn't up after 4 minutes. Check the workflow runs in ${START_REPO} on GitHub.`;
+  btn.disabled = false;
+});
 
 // Encrypted storage: the key stays with the user and goes only to the verified enclave.
 
@@ -350,6 +420,7 @@ $("pause").addEventListener("click", async () => {
 // Boot
 
 (async () => {
+  if (!(await isUp())) { showStopped(); return; }
   if (!(await verify())) return;
   if (token) await start();
   else $("login").hidden = false;

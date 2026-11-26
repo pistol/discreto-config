@@ -14,6 +14,7 @@
     <span id="verify" class="badge pending">Checking enclave...</span>
     <button id="pause" class="danger" hidden>Pause agents</button>
   </header>
+  <p id="idle-note" class="meta"></p>
 
   <section id="login" hidden>
     <p>The enclave passed verification. Enter your access token.</p>
@@ -21,6 +22,14 @@
       <input id="token" type="password" autocomplete="off" placeholder="Access token" required>
       <label><input id="remember" type="checkbox"> Remember on this device</label>
       <button type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="stopped" hidden>
+    <p id="stopped-msg">Discreto is stopped to save cost. Starting it takes about a minute.</p>
+    <form id="start-form">
+      <input id="gh-token" type="password" autocomplete="off" placeholder="GitHub token, needed once on this device">
+      <button type="submit" id="start-btn">Start Discreto</button>
     </form>
   </section>
 
@@ -81,6 +90,6 @@
     </div>
   </main>
 
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
