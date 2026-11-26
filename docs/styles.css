@@ -128,8 +128,20 @@ button:disabled { opacity: .45; cursor: default; }
 #log-runs th, #log-runs td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
 #log-runs td.now { color: var(--ok); font-weight: 600; }
 #log-history { margin-bottom: 16px; }
-ul.history > li.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
-ul.history details { margin-top: 8px; font-size: 13px; }
-ul.history details summary { cursor: pointer; color: var(--muted); }
+ul.history { list-style: none; padding: 0; margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.h-row { display: grid; grid-template-columns: 9.5em 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); }
+.h-row:first-child { border-top: 0; }
+.h-row > .chip { justify-self: start; }
+.h-main { min-width: 0; cursor: pointer; }
+.h-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-meta { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h-row.open .h-title, .h-row.open .h-meta { white-space: normal; }
+.h-side { justify-self: end; }
+.h-note { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.h-note.ok, .h-detail .ok { color: var(--ok); }
+.h-note.bad, .h-detail .bad { color: var(--bad); }
+.h-detail { grid-column: 2 / -1; font-size: 14px; display: grid; gap: 4px; }
+button.small { padding: 3px 10px; font-size: 13px; }
+@media (max-width: 560px) { .h-row { grid-template-columns: 1fr auto; } .h-row > .chip { grid-column: 1 / -1; } .h-detail { grid-column: 1 / -1; } }
 .gmail-link { display: inline-block; margin: 6px 0 2px; font-size: 0.95em; }
 .item-list .gmail-link { margin: 4px 0 0; font-size: 0.85em; }

@@ -1068,7 +1068,7 @@ async function loadHistory() {
   box.replaceChildren();
   if (!rows.length) return;
   box.append(el("strong", "Approved steps"));
-  box.append(el("p", "What you approved or denied. Undo puts back exactly the messages a step changed; mail that already had a label keeps it.", "meta"));
+  box.append(el("p", "Tap a row for details. Undo reverses exactly what a step changed.", "meta"));
   const list = el("ul", null, "history");
   const shown = historyAll ? rows : rows.slice(0, 10);
   for (const r of shown) list.append(historyRow(r));
@@ -1078,56 +1078,59 @@ async function loadHistory() {
   }
 }
 
+// One compact row per decided step: kind, title, one line of what happened, and a small Undo.
+// Tapping the row opens the exact wording and what undo would do.
 function historyRow(r) {
   const kind = KINDS[r.tool] || { name: r.tool, cls: "" };
-  const li = el("li", null, "card history-row");
-  const top = el("div", null, "card-top");
+  const li = el("li", null, "h-row");
   let title;
   try { title = describeStep(r).title; } catch { title = first(r.reason, 120); }
-  top.append(chip(kind.name, `kind ${kind.cls}`), el("strong", title, "card-title"));
-  li.append(top);
-  const verb = r.status === "approved" ? "Approved" : "Denied";
-  const res = r.status === "approved" && r.result ? ` ${resultWords(r.tool, r.result)}` : "";
-  li.append(el("div", `${verb} ${since(r.decided || r.created)}.${res}`, "meta"));
-  const status = el("div", null, "step-status");
+  const verb = r.status === "approved" ? "" : "Denied · ";
+  const res = r.status === "approved" && r.result ? ` · ${resultWords(r.tool, r.result).replace(/\.$/, "")}` : "";
+  const main = el("div", null, "h-main");
+  main.append(el("div", title, "h-title"), el("div", `${verb}${since(r.decided || r.created)}${res}`, "h-meta"));
+  const side = el("div", null, "h-side");
+  const detail = el("div", null, "h-detail");
+  detail.hidden = true;
+  if (r.can_undo && !r.undone) detail.append(el("div", `Undo would ${r.undo.charAt(0).toLowerCase()}${r.undo.slice(1)}`));
+  else if (r.status === "approved" && r.why_not && !r.undone) detail.append(el("div", `No undo: ${r.why_not}.`, "meta"));
+  detail.append(el("div", r.reason, "meta"));
+  main.addEventListener("click", () => { detail.hidden = !detail.hidden; li.classList.toggle("open", !detail.hidden); });
+
+  const note = (text, cls) => { side.replaceChildren(el("span", text, `h-note ${cls || ""}`)); };
   if (r.undone) {
     const ur = r.undo_result || {};
-    status.textContent = ur.error ? `Undo failed: ${ur.error}` : `Undone ${since(r.undone)}. ${resultWords(r.tool, ur)}`;
-    status.classList.add(ur.error ? "bad" : "ok");
-    li.append(status);
+    note(ur.error ? "Undo failed" : `Undone ${since(r.undone)}`, ur.error ? "bad" : "ok");
+    if (ur.error) detail.prepend(el("div", `Undo failed: ${ur.error}`, "bad"));
   } else if (r.can_undo) {
-    li.append(el("div", `Undo would ${r.undo.charAt(0).toLowerCase()}${r.undo.slice(1)}`, "reason"));
-    const actions = el("div", null, "actions");
     let armed = false, timer = null;
-    const b = button("Undo", async () => {
+    const b = button("Undo", async (e) => {
+      e.stopPropagation();
       if (!armed) {
         armed = true;
-        b.textContent = "Tap again to undo";
+        b.textContent = "Confirm";
+        detail.hidden = false;
+        li.classList.add("open");
         timer = setTimeout(() => { armed = false; b.textContent = "Undo"; }, 5000);
         return;
       }
       clearTimeout(timer);
-      actions.remove();
-      status.replaceChildren(el("span", null, "spinner"), el("span", " Undoing in Gmail, big steps can take a minute..."));
-      li.append(status);
+      side.replaceChildren(el("span", null, "spinner"));
       try {
         const out = await api(`/api/history/${r.id}/undo`, { method: "POST" });
         const ur = out.result || {};
-        status.textContent = ur.error ? `Undo failed: ${ur.error}` : `Undone. ${resultWords(r.tool, ur)}`;
-        status.classList.add(ur.error ? "bad" : "ok");
+        note(ur.error ? "Undo failed" : "Undone", ur.error ? "bad" : "ok");
+        detail.prepend(el("div", ur.error ? `Undo failed: ${ur.error}` : `Undone. ${resultWords(r.tool, ur)}`, ur.error ? "bad" : "ok"));
       } catch (err) {
-        status.textContent = `Undo failed: ${err.message}`;
-        status.classList.add("bad");
+        note("Undo failed", "bad");
+        detail.prepend(el("div", `Undo failed: ${err.message}`, "bad"));
       }
-    }, "danger");
-    actions.append(b);
-    li.append(actions);
-  } else if (r.status === "approved" && r.why_not) {
-    li.append(el("div", `No undo: ${r.why_not}.`, "meta"));
+    }, "danger small");
+    side.append(b);
+  } else {
+    note(r.status === "approved" ? "No undo" : "Denied");
   }
-  const exact = el("details");
-  exact.append(el("summary", "Exact wording"), el("div", r.reason, "reason"));
-  li.append(exact);
+  li.append(chip(kind.name, `kind ${kind.cls}`), main, side, detail);
   return li;
 }
 
