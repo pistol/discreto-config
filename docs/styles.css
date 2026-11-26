@@ -131,3 +131,4 @@ button:disabled { opacity: .45; cursor: default; }
 ul.history > li.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
 ul.history details { margin-top: 8px; font-size: 13px; }
 ul.history details summary { cursor: pointer; color: var(--muted); }
+.gmail-link { display: inline-block; margin: 6px 0 2px; font-size: 0.95em; }

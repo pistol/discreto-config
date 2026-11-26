@@ -811,6 +811,16 @@ function approveAllButton(cards, n) {
   return b;
 }
 
+// Opens Gmail's own search for the mail a step would touch, in the account Discreto works on.
+function gmailLink(search, account) {
+  const who = account ? encodeURIComponent(account) : "0";
+  const a = el("a", "Open matching mail in Gmail", "gmail-link");
+  a.href = `https://mail.google.com/mail/u/${who}/#search/${encodeURIComponent(search)}`;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return a;
+}
+
 function approvalCard(r) {
   const kind = KINDS[r.tool] || { name: r.tool, cls: "" };
   const li = el("li", null, "card");
@@ -824,6 +834,7 @@ function approvalCard(r) {
     li.append(row);
   }
   if (body) li.append(body);
+  if (r.gmail_search) li.append(gmailLink(r.gmail_search, r.gmail_account));
   const exact = el("details");
   exact.append(el("summary", "Exact wording"), el("div", r.reason, "reason"));
   const tech = el("details");
