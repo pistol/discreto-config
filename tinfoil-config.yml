@@ -28,7 +28,7 @@ networks:
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:33264cc1a4a5712dbe5de8b74baca7f25234b96bfa56afeda73d03d208160b3a"
+    image: "ghcr.io/pistol/discreto@sha256:3627a81fc30c39dec9c019396b7174e31accfdb309ec4aeb47b934472cfdf24b"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
@@ -45,6 +45,7 @@ containers:
       - USER_TOKENS
       - MAIL_ACCOUNTS
       - RUNLOG_KEY
+      - GOOGLE_OAUTH
     # Milestone 1: in-memory data, lost on restart. See README for the encrypted volume.
     volumes: ["data:/data"]
     # persistent_volumes: ["workspace:/data"]
@@ -53,7 +54,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:33264cc1a4a5712dbe5de8b74baca7f25234b96bfa56afeda73d03d208160b3a"
+    image: "ghcr.io/pistol/discreto@sha256:3627a81fc30c39dec9c019396b7174e31accfdb309ec4aeb47b934472cfdf24b"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
