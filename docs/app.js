@@ -330,40 +330,193 @@ $("triage").addEventListener("click", async () => {
 });
 
 // Approvals
+//
+// Each step is drawn as a card: a colored kind, a short title, a few facts as
+// chips, and every sender or filter on its own line. The server's own sentence
+// stays under "Exact wording", and the raw step under "Technical details".
+
+const KINDS = {
+  "gmail.label": { name: "Label", cls: "k-label", group: "Label past mail" },
+  "gmail.filter": { name: "New filter", cls: "k-filter", group: "New filters for new mail" },
+  "gmail.filter_delete": { name: "Delete filters", cls: "k-danger", group: "Delete old filters" },
+  "gmail.trash": { name: "Trash", cls: "k-danger", group: "Move to Trash" },
+  "gmail.archive": { name: "Archive", cls: "k-archive", group: "Archive" },
+};
+
+function countIn(reason) {
+  const m = /([\d,]+) (?:inbox )?messages/.exec(reason || "");
+  return m ? m[1] : null;
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function chip(text, cls) {
+  return el("span", text, `chip${cls ? " " + cls : ""}`);
+}
+
+// A long list shown five at a time, with the rest one tap away.
+function itemList(items, noun, render) {
+  const box = el("div", null, "items");
+  const head = el("div", plural(items.length, noun), "items-head");
+  const ul = el("ul", null, "item-list");
+  const show = (n) => {
+    ul.replaceChildren();
+    for (const it of items.slice(0, n)) {
+      const li = el("li");
+      render(li, it);
+      ul.append(li);
+    }
+  };
+  show(5);
+  box.append(head, ul);
+  if (items.length > 5) {
+    let open = false;
+    const more = button(`Show all ${items.length}`, () => {
+      open = !open;
+      show(open ? items.length : 5);
+      more.textContent = open ? "Show fewer" : `Show all ${items.length}`;
+    }, "link");
+    box.append(more);
+  }
+  return box;
+}
+
+// "from x.com -> skip inbox, label Shopping" as a match line and action chips.
+function renderFilter(li, summary) {
+  const i = summary.indexOf(" -> ");
+  const match = i >= 0 ? summary.slice(0, i) : summary;
+  const acts = i >= 0 ? summary.slice(i + 4).split(", ") : [];
+  li.append(el("div", match, "f-match"));
+  if (acts.length) {
+    const row = el("div", null, "chips");
+    for (const a of acts) row.append(chip(a, /trash/.test(a) ? "c-bad" : ""));
+    li.append(row);
+  }
+}
+
+function senderOf(r) {
+  const a = r.args || {};
+  if (Array.isArray(a.senders)) return a.senders;
+  if (a.sender) return [a.sender];
+  return [];
+}
+
+function describeStep(r) {
+  const a = (r.args && typeof r.args === "object") ? r.args : {};
+  const n = countIn(r.reason);
+  const senders = senderOf(r);
+  const facts = [];
+  let title = r.tool;
+  let body = null;
+  const who = a.category ? `Gmail's ${a.category} tab` : (senders.length ? plural(senders.length, "sender") : "every sender");
+  const days = a.older_than_days ? `Older than ${a.older_than_days} days` : null;
+  if (r.tool === "gmail.label") {
+    title = `Label ${n || ""} messages from ${who}`.replace("  ", " ");
+    if (a.label) facts.push(chip(`Label: ${a.label}`, "c-strong"));
+    if (a.to_category) facts.push(chip(`Move to ${a.to_category}`));
+    if (days) facts.push(chip(days));
+    facts.push(chip("Nothing else changes", "c-ok"));
+  } else if (r.tool === "gmail.filter") {
+    title = `Filter new mail from ${who}`;
+    if (a.label) facts.push(chip(`Label: ${a.label}`, "c-strong"));
+    if (a.trash) facts.push(chip("Goes to Trash", "c-bad"));
+    else if (a.skip_inbox === false || String(a.skip_inbox).toLowerCase() === "false") facts.push(chip("Stays in inbox", "c-ok"));
+    else facts.push(chip("Skips the inbox"));
+    if (a.to_category) facts.push(chip(`Move to ${a.to_category}`));
+    if (a.replaces) facts.push(chip("Replaces an old filter"));
+    facts.push(chip("Existing mail unchanged", "c-ok"));
+  } else if (r.tool === "gmail.trash") {
+    title = `Trash ${n || ""} messages from ${who}`.replace("  ", " ");
+    if (days) facts.push(chip(days));
+    facts.push(chip("Starred kept", "c-ok"), chip("Restorable for 30 days"));
+  } else if (r.tool === "gmail.archive") {
+    title = `Archive ${n || ""} inbox messages from ${who}`.replace("  ", " ");
+    if (a.label) facts.push(chip(`Label: ${a.label}`, "c-strong"));
+    if (days) facts.push(chip(days));
+    facts.push(chip("Stays in All Mail", "c-ok"));
+  } else if (r.tool === "gmail.filter_delete") {
+    let summaries = Array.isArray(a.summaries) ? a.summaries : [];
+    if (!summaries.length) {
+      const m = /^Delete the Gmail filter: (.*)\. Mail it already/.exec(r.reason || "");
+      if (m) summaries = [m[1]];
+    }
+    const k = summaries.length || (Array.isArray(a.filter_ids) ? a.filter_ids.length : 1);
+    title = a.stale ? `Delete ${plural(k, "stale filter")}` : `Delete ${plural(k, "filter")}`;
+    if (a.stale) facts.push(chip("No matching mail in a year"));
+    facts.push(chip("Mail stays where it is", "c-ok"));
+    if (summaries.length) body = itemList(summaries, "filter", renderFilter);
+  }
+  if (!body && senders.length) {
+    body = itemList(senders, "sender", (li, s) => li.append(el("span", s, "sender")));
+  }
+  return { title, facts, body };
+}
 
 async function loadApprovals() {
   const list = $("approvals");
   const rows = await api("/api/approvals");
   list.replaceChildren();
   const pending = rows.filter((r) => r.status === "pending");
-  if (!pending.length) list.append(el("li", "No steps are waiting for you.", "meta"));
+  if (!pending.length) { list.append(el("li", "No steps are waiting for you.", "meta")); return; }
+  list.append(el("li", `${plural(pending.length, "step")} wait for you. Nothing changes until you approve each one.`, "meta summary"));
+  const order = Object.keys(KINDS);
+  const groups = new Map();
   for (const r of pending) {
-    const li = el("li");
-    li.append(el("strong", r.tool), el("div", r.reason));
-    li.append(el("pre", typeof r.args === "string" ? r.args : JSON.stringify(r.args, null, 2)));
-    li.append(el("div", when(r.created), "meta"));
-    const actions = el("div", null, "actions");
-    const status = el("div", null, "meta");
-    const decide = (approve) => async () => {
-      for (const b of actions.querySelectorAll("button")) b.disabled = true;
-      status.textContent = approve ? "Working on it..." : "Denying...";
-      try {
-        const out = await api(`/api/approvals/${r.id}`, { method: "POST", body: { approve } });
-        const res = out && out.result;
-        if (!approve) status.textContent = "Denied.";
-        else if (res && res.error) status.textContent = `Failed: ${res.error}`;
-        else if (res && typeof res.changed === "number") status.textContent = `Done. ${res.changed} messages changed.`;
-        else status.textContent = "Done.";
-      } catch (err) {
-        status.textContent = `Failed: ${err.message}`;
-      }
-      setTimeout(loadApprovals, 4000);
-    };
-    actions.append(button("Approve", decide(true)), button("Deny", decide(false), "danger"));
-    li.append(status);
-    li.append(actions);
-    list.append(li);
+    const key = KINDS[r.tool] ? r.tool : "other";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
   }
+  const rank = (k) => (order.includes(k) ? order.indexOf(k) : order.length);
+  const keys = [...groups.keys()].sort((x, y) => rank(x) - rank(y));
+  for (const key of keys) {
+    const items = groups.get(key);
+    const g = KINDS[key] ? KINDS[key].group : "Other steps";
+    list.append(el("li", `${g} (${items.length})`, "group-head"));
+    for (const r of items) list.append(approvalCard(r));
+  }
+}
+
+function approvalCard(r) {
+  const kind = KINDS[r.tool] || { name: r.tool, cls: "" };
+  const li = el("li", null, "card");
+  const { title, facts, body } = describeStep(r);
+  const top = el("div", null, "card-top");
+  top.append(chip(kind.name, `kind ${kind.cls}`), el("strong", title, "card-title"));
+  li.append(top);
+  if (facts.length) {
+    const row = el("div", null, "chips");
+    row.append(...facts);
+    li.append(row);
+  }
+  if (body) li.append(body);
+  const exact = el("details");
+  exact.append(el("summary", "Exact wording"), el("div", r.reason, "reason"));
+  const tech = el("details");
+  tech.append(el("summary", "Technical details"),
+    el("pre", typeof r.args === "string" ? r.args : JSON.stringify(r.args, null, 2)));
+  li.append(exact, tech, el("div", `Proposed ${when(r.created)}`, "meta"));
+  const actions = el("div", null, "actions");
+  const status = el("div", null, "meta");
+  const decide = (approve) => async () => {
+    for (const b of actions.querySelectorAll("button")) b.disabled = true;
+    status.textContent = approve ? "Working on it..." : "Denying...";
+    try {
+      const out = await api(`/api/approvals/${r.id}`, { method: "POST", body: { approve } });
+      const res = out && out.result;
+      if (!approve) status.textContent = "Denied.";
+      else if (res && res.error) status.textContent = `Failed: ${res.error}`;
+      else if (res && typeof res.changed === "number") status.textContent = `Done. ${res.changed} messages changed.`;
+      else status.textContent = "Done.";
+    } catch (err) {
+      status.textContent = `Failed: ${err.message}`;
+    }
+    setTimeout(loadApprovals, 4000);
+  };
+  actions.append(button("Approve", decide(true), "primary"), button("Deny", decide(false), "danger"));
+  li.append(status, actions);
+  return li;
 }
 
 // Memory

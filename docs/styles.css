@@ -49,3 +49,34 @@ table.usage th, table.usage td { border: 1px solid var(--line, #ddd); padding: 3
 table.usage th:first-child, table.usage td:first-child,
 table.usage th:nth-child(2), table.usage td:nth-child(2) { text-align: left; }
 #log-usage { margin: 8px 0 14px; }
+
+/* Approval cards */
+#approvals > li.summary { border: 0; padding: 4px 0; }
+#approvals > li.group-head { border: 0; padding: 14px 0 4px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+#approvals > li.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
+.card-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.card-title { font-size: 17px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
+.chip { font-size: 13px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.chip.c-strong { font-weight: 600; border-color: var(--fg); }
+.chip.c-ok { color: var(--ok); border-color: var(--ok); }
+.chip.c-bad { color: var(--bad); border-color: var(--bad); }
+.chip.kind { font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+.chip.k-label { color: #1d4ed8; border-color: #1d4ed8; }
+.chip.k-filter { color: #7c3aed; border-color: #7c3aed; }
+.chip.k-archive { color: var(--muted); }
+.chip.k-danger { color: var(--bad); border-color: var(--bad); }
+@media (prefers-color-scheme: dark) { .chip.k-label { color: #7aa2ff; border-color: #7aa2ff; } .chip.k-filter { color: #b794f6; border-color: #b794f6; } }
+.items { margin-top: 10px; }
+.items-head { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+ul.item-list { margin: 0; border: 1px solid var(--line); border-radius: 8px; }
+ul.item-list > li { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+ul.item-list > li:last-child { border-bottom: 0; }
+.sender { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+.f-match { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
+ul.item-list .chips { margin-top: 4px; }
+button.link { border: 0; padding: 6px 0; text-decoration: underline; font-size: 14px; }
+button.primary { font-weight: 600; border-color: var(--ok); color: var(--ok); }
+#approvals details { margin-top: 8px; font-size: 13px; }
+#approvals details summary { cursor: pointer; color: var(--muted); }
+#approvals .reason { margin-top: 4px; color: var(--muted); }
