@@ -43,3 +43,9 @@ main.doc h2 { margin-top: 1.5rem; }
 #idle-note:empty { display: none; }
 #start-form { display: flex; gap: 8px; flex-wrap: wrap; }
 #start-form input { flex: 1; min-width: 220px; }
+
+table.usage { border-collapse: collapse; font-size: 13px; }
+table.usage th, table.usage td { border: 1px solid var(--line, #ddd); padding: 3px 8px; text-align: right; }
+table.usage th:first-child, table.usage td:first-child,
+table.usage th:nth-child(2), table.usage td:nth-child(2) { text-align: left; }
+#log-usage { margin: 8px 0 14px; }

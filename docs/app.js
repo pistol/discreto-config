@@ -392,18 +392,73 @@ $("memory-q").addEventListener("input", () => {
 
 // Log
 
+const num = (n) => (n === null || n === undefined ? "?" : Number(n).toLocaleString());
+
+function usageTable(rows) {
+  const table = el("table", null, "usage");
+  const head = el("tr");
+  for (const h of ["Model", "Role", "Calls", "Tokens in", "Tokens out", "Time"]) head.append(el("th", h));
+  table.append(head);
+  for (const r of rows) {
+    const tr = el("tr");
+    tr.append(el("td", r.model), el("td", r.role), el("td", num(r.calls)), el("td", num(r.tokens_in)),
+      el("td", num(r.tokens_out)), el("td", `${((r.ms || 0) / 1000).toFixed(1)}s`));
+    table.append(tr);
+  }
+  const wrap = el("div", null, "table-wrap");
+  wrap.append(table);
+  return wrap;
+}
+
+function usageRows(byModel) {
+  return Object.entries(byModel || {}).map(([model, m]) => ({ model, role: (m.roles || []).join(", "), ...m }));
+}
+
+function usageSummary(entries) {
+  const byModel = {};
+  let runs = 0;
+  for (const e of entries) {
+    if (e.kind !== "model-usage") continue;
+    runs += 1;
+    for (const [model, m] of Object.entries(e.data.by_model || {})) {
+      const t = (byModel[model] ||= { calls: 0, tokens_in: 0, tokens_out: 0, ms: 0, roles: [] });
+      t.calls += m.calls; t.tokens_in += m.tokens_in; t.tokens_out += m.tokens_out; t.ms += m.ms;
+      for (const r of m.roles || []) if (!t.roles.includes(r)) t.roles.push(r);
+    }
+  }
+  const box = $("log-usage");
+  box.replaceChildren();
+  if (!runs) return;
+  box.append(el("strong", `Models used in the last ${runs} run${runs === 1 ? "" : "s"}`), usageTable(usageRows(byModel)));
+}
+
 async function loadLog() {
   const [entries, check] = await Promise.all([api("/api/log"), api("/api/log/verify")]);
   $("log-verify").textContent = check.ok
     ? `Run log intact: ${check.entries} entries, chain and signatures check out.`
     : `Run log check failed: ${check.error}`;
+  const shown = entries.slice(-200);
+  usageSummary(shown);
   const list = $("log");
   list.replaceChildren();
-  for (const e of entries.slice(-200).reverse()) {
+  for (const e of shown.reverse()) {
     const li = el("li");
     const { user, ...data } = e.data;
-    li.append(el("strong", `${e.kind} · ${data.tool || ""}`), el("div", `${new Date(e.ts * 1000).toLocaleString()} · task ${e.task_id}`, "meta"));
-    li.append(el("pre", JSON.stringify(data, null, 2)));
+    const when = `${new Date(e.ts * 1000).toLocaleString()} · task ${e.task_id}`;
+    if (e.kind === "model-usage") {
+      const t = data.totals || {};
+      li.append(el("strong", `model usage · ${data.run || ""} via ${data.via || ""}`), el("div", when, "meta"),
+        el("div", `${num(t.calls)} calls · ${num(t.tokens_in)} tokens in · ${num(t.tokens_out)} tokens out · ${((t.ms || 0) / 1000).toFixed(1)}s`
+          + (t.unmetered_calls ? ` · ${t.unmetered_calls} call(s) reported no token counts` : ""), "meta"),
+        usageTable(usageRows(data.by_model)));
+      const calls = el("details");
+      calls.append(el("summary", "Each call"),
+        usageTable((data.calls || []).map((c) => ({ ...c, calls: 1, role: c.role + (c.fallback_from ? ` (fallback from ${c.fallback_from})` : "") + (c.error ? " (failed)" : "") }))));
+      li.append(calls);
+    } else {
+      li.append(el("strong", `${e.kind} · ${data.tool || ""}`), el("div", when, "meta"));
+      li.append(el("pre", JSON.stringify(data, null, 2)));
+    }
     list.append(li);
   }
 }
