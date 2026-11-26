@@ -523,7 +523,7 @@ let showOther = false;
 let showEffort = false;
 
 function fmtContext(n) { return n >= 1e6 ? `${n / 1e6}M` : `${Math.round(n / 1000)}K`; }
-function fmtPrice(n) { return `$${n < 1 ? n.toFixed(2) : n % 1 ? n.toFixed(2) : n.toFixed(0)}`; }
+function fmtPrice(n) { return `$${n.toFixed(2)}`; }
 function fmtCost(n) { return n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`; }
 function fmtTokens(n) { return n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K` : `${n}`; }
 const modelById = (id) => (offer?.models || []).find((m) => m.id === id);
@@ -659,13 +659,28 @@ function renderModelMenu() {
     if (showOther) for (const m of other) parts.push(modelRow(m, false));
   }
   menu.replaceChildren(...parts);
+  placeModelMenu();
 }
 
 function openModelMenu() {
   renderModelMenu();
-  $("model-menu").hidden = false;
+  const menu = $("model-menu");
+  menu.hidden = false;
   $("model-trigger").setAttribute("aria-expanded", "true");
+  placeModelMenu();
 }
+// Open toward whichever side of the trigger has more room, like Tinfoil Chat's menu.
+function placeModelMenu() {
+  const menu = $("model-menu");
+  if (menu.hidden) return;
+  const r = $("model-trigger").getBoundingClientRect();
+  const vh = window.visualViewport?.height ?? window.innerHeight;
+  const above = r.top - 20, below = vh - r.bottom - 20;
+  const up = below < Math.min(menu.scrollHeight, 480) && above > below;
+  menu.classList.toggle("up", up);
+  menu.style.maxHeight = `${Math.max(160, Math.min(up ? above : below, vh * 0.7))}px`;
+}
+window.addEventListener("resize", placeModelMenu);
 function closeModelMenu() {
   $("model-menu").hidden = true;
   showEffort = false;
