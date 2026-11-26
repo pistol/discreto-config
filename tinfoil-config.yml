@@ -18,15 +18,17 @@ networks:
       - kds-proxy.tinfoil.sh
       - tdx-proxy.tinfoil.sh
       - tuf-repo-cdn.sigstore.dev
-  # Broker egress: Gmail over IMAP, read only.
+  # Broker egress: Gmail over IMAP (read only), and the Gmail API for approved cleanup.
   mail:
     egress: allowlist
     allow:
       - imap.gmail.com
+      - oauth2.googleapis.com
+      - gmail.googleapis.com
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:2187a61e32190490fdeade209f35df024488d12d108d19ed9d82961eedc8c46e"
+    image: "ghcr.io/pistol/discreto@sha256:33264cc1a4a5712dbe5de8b74baca7f25234b96bfa56afeda73d03d208160b3a"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
@@ -51,7 +53,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:2187a61e32190490fdeade209f35df024488d12d108d19ed9d82961eedc8c46e"
+    image: "ghcr.io/pistol/discreto@sha256:33264cc1a4a5712dbe5de8b74baca7f25234b96bfa56afeda73d03d208160b3a"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
@@ -84,6 +86,8 @@ shim:
     - /.well-known/oauth-protected-resource
     - /.well-known/oauth-protected-resource/mcp
     - /.well-known/oauth-authorization-server
+    # Gmail cleanup: Google sign-in page and its callback
+    - /google/*
   origins:
     - "https://pistol.github.io"
     # the OAuth sign-in page posts back to the enclave itself
