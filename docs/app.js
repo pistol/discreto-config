@@ -147,8 +147,11 @@ async function start() {
   $("login").hidden = true;
   $("app").hidden = false;
   $("pause").hidden = false;
+  // Unlock first: until then the enclave answers from an empty in-memory
+  // database, so a tab loaded earlier shows nothing.
+  await checkStorage();
   showTab(tabFromHash());
-  checkStorage().then(offerPasskey);
+  offerPasskey();
   loadHeader();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshBadges(); });
@@ -317,14 +320,32 @@ async function unlockStorage(key, initialize) {
   }
 }
 
+function reloadActive() {
+  const active = document.querySelector("nav button.active");
+  if (active) showTab(active.dataset.tab);
+}
+
 async function checkStorage() {
   let state;
   try { state = (await api("/api/storage")).state; } catch { return; }
   if (state !== "locked") { $("storage").hidden = true; return; }
   const saved = storageKeyMem || localStorage.getItem(STORAGE_KEY);
   if (saved && await unlockStorage(saved, false)) return;
+  $("storage-passkey").hidden = !hasVault();
   $("storage").hidden = false;
 }
+
+$("storage-passkey").addEventListener("click", async () => {
+  try {
+    const v = await openVault();
+    vaultUpdate = v.update;
+    githubMem = githubMem || v.secrets.githubToken || null;
+    if (!v.secrets.storageKey) { $("storage-msg").textContent = "No storage key is saved with Touch ID yet. Enter it once below."; return; }
+    if (await unlockStorage(v.secrets.storageKey, false)) reloadActive();
+  } catch (err) {
+    $("storage-msg").textContent = `Touch ID didn't open the saved keys: ${err.message}`;
+  }
+});
 
 $("storage-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -333,6 +354,7 @@ $("storage-form").addEventListener("submit", async (e) => {
   if (await unlockStorage(key, false)) {
     if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     $("storage-key").value = "";
+    reloadActive();
   }
 });
 
@@ -350,6 +372,7 @@ $("storage-init").addEventListener("click", async () => {
     if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     $("storage-newkey").textContent = "";
     $("storage-create").hidden = true;
+    reloadActive();
   }
 });
 
@@ -360,6 +383,8 @@ $("login-passkey").addEventListener("click", async () => {
     const v = await openVault();
     vaultUpdate = v.update;
     token = v.secrets.token;
+    // Kept for this tab only, so a reload doesn't ask for Touch ID again.
+    sessionStorage.setItem(TOKEN_KEY, token);
     storageKeyMem = v.secrets.storageKey || null;
     githubMem = v.secrets.githubToken || null;
   } catch (err) {
@@ -399,7 +424,7 @@ $("passkey-save").addEventListener("click", async () => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(GITHUB_KEY);
-  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.setItem(TOKEN_KEY, token);
   $("passkey-offer").hidden = true;
   showToast("Saved. Next time, sign in with Touch ID.");
 });
