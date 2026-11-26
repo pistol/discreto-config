@@ -142,7 +142,7 @@ async function start() {
   $("login").hidden = true;
   $("app").hidden = false;
   $("pause").hidden = false;
-  showTab("chat");
+  showTab(tabFromHash());
   checkStorage();
   loadHeader();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
@@ -343,7 +343,12 @@ function alertLine(text) {
 
 const loaders = { cards: loadCards, approvals: loadApprovals, memory: loadMemory, log: loadLog };
 
+const TABS = ["chat", "cards", "approvals", "memory", "log"];
+const tabFromHash = () => { const h = location.hash.slice(1); return TABS.includes(h) ? h : "chat"; };
+
+// The open tab lives in the address (#approvals), so a reload or a shared link opens the same tab.
 function showTab(name) {
+  if (location.hash.slice(1) !== name) history.replaceState(null, "", name === "chat" ? location.pathname + location.search : `#${name}`);
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== `tab-${name}`; });
   clearError(name);
@@ -361,6 +366,7 @@ function showError(name, err) {
 }
 
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+window.addEventListener("hashchange", () => { if (!$("app").hidden) showTab(tabFromHash()); });
 
 // Chat
 
