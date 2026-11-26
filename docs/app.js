@@ -2,9 +2,11 @@
 // The enclave is verified with Tinfoil's SecureClient before the access token
 // is ever sent. All API traffic then goes through client.fetch, which is bound
 // to the attested enclave. Every string from the server is rendered with
-// textContent, never as HTML, because card text comes from email.
-import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=2"; // bundled tinfoil@1.4.0, see vendor/README
-import { ENCLAVE_URL, CONFIG_REPO } from "./config.js?v=2";
+// textContent, never as HTML, because card text comes from email. Chat replies
+// go through renderMarkdown, which builds DOM nodes the same way.
+import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
+import { ENCLAVE_URL, CONFIG_REPO } from "./config.js?v=3";
+import { renderMarkdown } from "./markdown.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
@@ -137,7 +139,7 @@ document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click
 
 function addMessage(who, text) {
   const div = el("div", null, `msg ${who}`);
-  div.append(el("span", text));
+  div.append(who === "assistant" ? renderMarkdown(text) : el("span", text));
   $("messages").append(div);
   div.scrollIntoView({ block: "end" });
 }

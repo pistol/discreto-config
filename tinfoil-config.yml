@@ -26,7 +26,7 @@ networks:
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:81d5ef353538040a73f534ee2002cdb9db6f76b08b63bd3eda9936435eb4a45b"
+    image: "ghcr.io/pistol/discreto@sha256:fabe8663c04aea623731735bfcdcd4c1d4292f43f0c3651155040e80f7371049"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
@@ -35,6 +35,8 @@ containers:
       - DATA_DIR: "/data"
       - TRIAGE_INTERVAL_S: "1800"
       - ALLOWED_ORIGINS: "https://pistol.github.io"
+      # Enables /mcp and OAuth for the Claude custom connector. Must be this enclave's own URL.
+      - PUBLIC_URL: "https://app.discreto.containers.tinfoil.dev"
     secrets:
       - BROKER_TOKEN
       - AGENT_TOKEN
@@ -49,7 +51,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:81d5ef353538040a73f534ee2002cdb9db6f76b08b63bd3eda9936435eb4a45b"
+    image: "ghcr.io/pistol/discreto@sha256:fabe8663c04aea623731735bfcdcd4c1d4292f43f0c3651155040e80f7371049"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
@@ -76,5 +78,13 @@ shim:
   paths:
     - /healthz
     - /api/*
+    # MCP endpoint and OAuth for the Claude custom connector
+    - /mcp
+    - /oauth/*
+    - /.well-known/oauth-protected-resource
+    - /.well-known/oauth-protected-resource/mcp
+    - /.well-known/oauth-authorization-server
   origins:
     - "https://pistol.github.io"
+    # the OAuth sign-in page posts back to the enclave itself
+    - "https://app.discreto.containers.tinfoil.dev"
