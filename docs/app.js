@@ -7,7 +7,7 @@
 import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
 import { ENCLAVE_URL, CONFIG_REPO, START_REPO, START_WORKFLOW } from "./config.js?v=4";
 import { renderMarkdown } from "./markdown.js?v=3";
-import { hasVault, createVault, openVault, forgetVault, passkeysAvailable } from "./passkey.js?v=1";
+import { hasVault, createVault, openVault, forgetVault, passkeysAvailable } from "./passkey.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
@@ -281,15 +281,28 @@ $("start-form").addEventListener("submit", async (e) => {
   if (!res.ok) {
     if ([401, 403, 404].includes(res.status)) {
       localStorage.removeItem(GITHUB_KEY);
+      githubMem = null;
       $("gh-token").hidden = false;
     }
-    msg.textContent = `GitHub didn't start it (${res.status}). Check that the token has Actions access to ${START_REPO}.`;
+    msg.textContent = res.status === 404
+      ? `GitHub can't see ${START_REPO} with this token (404). ${START_REPO} is private, so the token's Repository access must include it, with Actions set to Read and write.`
+      : res.status === 401
+        ? "GitHub didn't accept this token (401). It may be mistyped, expired or revoked."
+        : `GitHub didn't start it (${res.status}). Check that the token has Actions read and write on ${START_REPO}.`;
     btn.disabled = false;
     return;
   }
   if (hasVault()) {
     githubMem = gh;
-    if (vaultUpdate) await vaultUpdate({ githubToken: gh }).catch(() => {});
+    // A token typed before Touch ID opened the vault used to stay in memory only.
+    // Open it now so the token is saved and the next Start needs no typing.
+    msg.textContent = "Started. Touch ID saves the GitHub token on this device...";
+    try {
+      if (!vaultUpdate) vaultUpdate = (await openVault()).update;
+      await vaultUpdate({ githubToken: gh });
+    } catch (err) {
+      showToast(`Started, but the GitHub token wasn't saved with Touch ID: ${err.message}`);
+    }
   } else {
     localStorage.setItem(GITHUB_KEY, gh);
   }

@@ -92,6 +92,12 @@ export async function openVault() {
   const prf = await prfFrom(unb64(v.cred), salt);
   const key = await aesKey(prf, salt);
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(v.iv) }, key, unb64(v.ct));
-  const secrets = JSON.parse(dec.decode(pt));
-  return { secrets, update: async (more) => seal(unb64(v.cred), salt, prf, { ...secrets, ...more }) };
+  let secrets = JSON.parse(dec.decode(pt));
+  // Each update builds on the last one, so saving the storage key later in the same
+  // page can't drop a GitHub token saved a moment earlier.
+  const update = async (more) => {
+    secrets = { ...secrets, ...more };
+    await seal(unb64(v.cred), salt, prf, secrets);
+  };
+  return { secrets, update };
 }
