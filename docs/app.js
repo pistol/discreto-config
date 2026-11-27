@@ -346,7 +346,11 @@ async function checkStorage() {
   try { state = (await api("/api/storage")).state; } catch { return; }
   if (state !== "locked") { $("storage").hidden = true; return; }
   const saved = storageKeyMem || localStorage.getItem(STORAGE_KEY);
-  if (saved && await unlockStorage(saved, false)) return;
+  if (saved) {
+    if (await unlockStorage(saved, false)) return;
+    storageKeyMem = null;
+    $("storage-msg").textContent = "The saved storage key didn't unlock the volume. Enter the key once; it replaces the saved one.";
+  }
   $("storage-passkey").hidden = !hasVault();
   $("storage").hidden = false;
 }
@@ -369,6 +373,11 @@ $("storage-form").addEventListener("submit", async (e) => {
   if (!key) return;
   if (await unlockStorage(key, false)) {
     if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
+    // With a Touch ID vault, a key that works replaces the saved one.
+    if (hasVault() && !vaultUpdate) {
+      try { vaultUpdate = (await openVault()).update; await vaultUpdate({ storageKey: key }); }
+      catch (err) { showToast(`Unlocked, but the key wasn't saved with Touch ID: ${err.message}`); }
+    }
     $("storage-key").value = "";
     reloadActive();
   }
