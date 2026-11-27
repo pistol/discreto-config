@@ -1405,6 +1405,33 @@ $("memory-form").addEventListener("submit", async (e) => {
   } catch (err) { showError("memory", err); }
 });
 
+// Import a saved database (one recovered from an old volume) into the unlocked storage.
+$("import-file").addEventListener("change", (e) => { $("import-go").disabled = !e.target.files.length; });
+$("import-go").addEventListener("click", async () => {
+  const file = $("import-file").files[0];
+  const msg = $("import-msg");
+  if (!file) return;
+  if (file.size > 64 * 1024 * 1024) { msg.textContent = "That file is larger than 64 MB."; return; }
+  $("import-go").disabled = true;
+  msg.textContent = `Importing ${file.name}...`;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const res = await api("/api/storage/import", { method: "POST", body: { data: btoa(bin), name: file.name } });
+    const names = { facts: "memories", cards: "cards", approvals: "approvals", history: "history entries",
+      episodes: "chat summaries", instances: "run records", kv: "settings" };
+    const parts = Object.entries(res.tables).filter(([, c]) => c.added).map(([t, c]) => `${c.added} ${names[t] || t}`);
+    msg.textContent = parts.length ? `Imported ${parts.join(", ")}.` : "Nothing new to import; it was all here already.";
+    $("import-file").value = "";
+    await loadMemory();
+    refreshBadges();
+  } catch (err) {
+    msg.textContent = `Couldn't import: ${err.message}`;
+    $("import-go").disabled = false;
+  }
+});
+
 let memoryTimer = null;
 $("memory-q").addEventListener("input", () => {
   clearTimeout(memoryTimer);

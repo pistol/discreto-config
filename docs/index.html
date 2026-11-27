@@ -128,6 +128,13 @@
       </form>
       <input id="memory-q" type="search" placeholder="Search what I know">
       <ul id="memory"></ul>
+      <details class="import">
+        <summary class="meta">Import saved data from an old volume</summary>
+        <p class="meta">Pick a Discreto database file (for example valentin.sqlite3 recovered from an old volume). It goes only to the verified enclave and is merged into your saved data: memory, cards, approvals, history and the plan. Storage has to be unlocked first.</p>
+        <input id="import-file" type="file" accept=".sqlite3,.sqlite,.db,application/octet-stream">
+        <button type="button" id="import-go" disabled>Import</button>
+        <p id="import-msg" class="meta"></p>
+      </details>
     </div>
 
     <div id="tab-log" class="tab" hidden>
@@ -141,6 +148,6 @@
     </div>
   </main>
 
-  <script type="module" src="app.js?v=33"></script>
+  <script type="module" src="app.js?v=34"></script>
 </body>
 </html>
