@@ -321,12 +321,16 @@ $("start-form").addEventListener("submit", async (e) => {
 // Encrypted storage: the key stays with the user and goes only to the verified enclave.
 
 
+let lastKeyChecked = true;
 async function unlockStorage(key, initialize) {
   const msg = $("storage-msg");
   msg.textContent = initialize ? "Setting up storage..." : "Unlocking...";
   try {
-    await api("/api/storage/unlock", { method: "POST", body: { key, initialize } });
+    const res = await api("/api/storage/unlock", { method: "POST", body: { key, initialize } });
     $("storage").hidden = true;
+    // Only a key the volume itself accepted gets saved as the working key.
+    lastKeyChecked = !(res && res.verified === false);
+    if (!lastKeyChecked) { showToast("Storage was already open, so this key wasn't checked or saved."); return true; }
     storageKeyMem = key;
     if (vaultUpdate) vaultUpdate({ storageKey: key }).catch(() => {});
     return true;
@@ -352,7 +356,7 @@ async function checkStorage() {
     $("storage-msg").textContent = "The saved storage key didn't unlock the volume. Enter the key once; it replaces the saved one.";
   }
   $("storage-passkey").hidden = !hasVault();
-  $("storage-show").hidden = !hasVault();
+  $("storage-show").hidden = !hasVault() && !localStorage.getItem(STORAGE_KEY);
   $("storage").hidden = false;
 }
 
@@ -378,16 +382,20 @@ function hideKey() {
 }
 $("storage-show").addEventListener("click", async () => {
   try {
-    const v = await openVault();
-    vaultUpdate = v.update;
-    const key = v.secrets.storageKey;
-    if (!key) { $("storage-msg").textContent = "No storage key is saved with Touch ID on this device."; return; }
+    // A plain copy from "Remember on this device" (before Touch ID) counts too.
+    let key = localStorage.getItem(STORAGE_KEY), where = "remembered on this device";
+    if (hasVault()) {
+      const v = await openVault();
+      vaultUpdate = v.update;
+      if (v.secrets.storageKey) { key = v.secrets.storageKey; where = "saved with Touch ID"; }
+    }
+    if (!key) { $("storage-msg").textContent = "No storage key is saved on this device."; return; }
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
     const fp = Array.from(digest.slice(0, 4), (b) => b.toString(16).padStart(2, "0")).join("");
     let bytes = "not valid base64";
     try { bytes = `${atob(key).length} bytes`; } catch {}
     $("storage-shown").textContent = key;
-    $("storage-shown-info").textContent = `${key.length} characters, ${bytes}, fingerprint ${fp}. Hidden again in 60 seconds.`;
+    $("storage-shown-info").textContent = `Key ${where}: ${key.length} characters, ${bytes}, fingerprint ${fp}. Hidden again in 60 seconds.`;
     $("storage-reveal").hidden = false;
     clearTimeout(revealTimer);
     revealTimer = setTimeout(hideKey, 60000);
@@ -406,9 +414,9 @@ $("storage-form").addEventListener("submit", async (e) => {
   const key = $("storage-key").value.trim();
   if (!key) return;
   if (await unlockStorage(key, false)) {
-    if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
+    if (lastKeyChecked && $("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     // With a Touch ID vault, a key that works replaces the saved one.
-    if (hasVault() && !vaultUpdate) {
+    if (lastKeyChecked && hasVault() && !vaultUpdate) {
       try { vaultUpdate = (await openVault()).update; await vaultUpdate({ storageKey: key }); }
       catch (err) { showToast(`Unlocked, but the key wasn't saved with Touch ID: ${err.message}`); }
     }
@@ -428,7 +436,7 @@ $("storage-saved").addEventListener("change", (e) => { $("storage-init").disable
 $("storage-init").addEventListener("click", async () => {
   const key = $("storage-newkey").textContent;
   if (await unlockStorage(key, true)) {
-    if ($("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
+    if (lastKeyChecked && $("storage-remember").checked && !hasVault()) localStorage.setItem(STORAGE_KEY, key);
     $("storage-newkey").textContent = "";
     $("storage-create").hidden = true;
     reloadActive();
