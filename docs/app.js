@@ -19,7 +19,6 @@ let githubMem = null;
 let vaultUpdate = null;
 const GITHUB_KEY = "discreto.githubToken";
 let token = localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
-let taskId = null;
 
 function el(tag, text, cls) {
   const node = document.createElement(tag);
@@ -558,12 +557,22 @@ window.addEventListener("hashchange", () => { if (!$("app").hidden) showTab(tabF
 
 // Chat
 
-// The conversation stays in this browser tab (sessionStorage) until New chat.
-// Earlier turns go back with each message, so a follow-up keeps its context.
+// Conversations are saved by Discreto on its encrypted volume, never in this
+// browser. The tab only remembers which one is open. A conversation opened from
+// a decision carries that decision with it, so Discreto answers about it.
 const CHAT_KEY = "discreto.chat";
-let chatLog = [];
-try { ({ taskId = null, chatLog = [] } = JSON.parse(sessionStorage.getItem(CHAT_KEY)) || {}); } catch {}
-const saveChat = () => sessionStorage.setItem(CHAT_KEY, JSON.stringify({ taskId, chatLog: chatLog.slice(-100) }));
+let chatId = null;     // the open conversation, once its first message is sent
+let chatAbout = null;  // a decision a new conversation will be about: { id, text }
+let chatTitle = "";
+let chatList = [];
+try {
+  const kept = JSON.parse(sessionStorage.getItem(CHAT_KEY)) || {};
+  chatId = typeof kept.chatId === "string" ? kept.chatId : null;
+} catch {}
+const saveChat = () => {
+  try { sessionStorage.setItem(CHAT_KEY, JSON.stringify({ chatId })); } catch {}
+};
+saveChat(); // drops the messages older versions kept here
 
 const SUGGESTIONS = ["What's waiting for my approval?", "Summarize today's mail", "What needs me this week?",
   "Which subscriptions do I never open?"];
@@ -657,6 +666,10 @@ function modelRow(m, selected) {
   if (selected && m.description) text.append(el("span", m.description, "m-desc"));
   text.append(el("span", `${fmtContext(m.context)} context · ${fmtPrice(m.price_in)} / ${fmtPrice(m.price_out)} per 1M tokens`, "m-meta"));
   if (m.experimental) text.append(el("span", "Experimental", "m-badge"));
+  // Runs outside Tinfoil: say where, and what protects the mail.
+  if (m.provider && m.provider !== "tinfoil") {
+    text.append(el("span", `${m.provider === "venice" ? "Venice" : m.provider}${m.privacy ? ` · ${m.privacy}` : ""}`, "m-badge"));
+  }
   return menuRow([modelIcon(m), text], { selected, onPick: () => { setPick({ model: m.id, effort: null }); closeModelMenu(); } });
 }
 
@@ -794,7 +807,7 @@ function usageLine(u) {
   return parts.join(" · ");
 }
 
-function addMessage(who, text, { save = true, ts = Date.now() / 1000, cls = "", approvals = 0, usage = null, thinking = "" } = {}) {
+function addMessage(who, text, { ts = Date.now() / 1000, cls = "", approvals = 0, usage = null, thinking = "" } = {}) {
   const div = el("div", null, `msg ${who}${cls ? " " + cls : ""}`);
   if (who === "assistant" && thinking) {
     const d = el("details", null, "thought");
@@ -810,7 +823,6 @@ function addMessage(who, text, { save = true, ts = Date.now() / 1000, cls = "", 
   div.append(foot);
   $("messages").append(div);
   div.scrollIntoView({ block: "end" });
-  if (save) { chatLog.push({ who, text, ts, cls, approvals, usage, thinking }); saveChat(); }
   syncEmpty();
 }
 
@@ -833,11 +845,6 @@ function setThinking(on) {
   tick();
 }
 
-function historyFor() {
-  return chatLog.filter((m) => !m.cls && (m.who === "user" || m.who === "assistant"))
-    .slice(-20).map((m) => ({ role: m.who, content: String(m.text).slice(0, 4000) }));
-}
-
 function summarizeUsage(out) {
   const u = out.usage || {};
   const t = u.totals || {};
@@ -847,23 +854,161 @@ function summarizeUsage(out) {
 }
 
 async function sendChat(message) {
-  const history = historyFor();
   addMessage("user", message);
   setThinking(true);
   const { model, effort } = currentPick();
+  const gen = chatGen;
   try {
-    const out = await api("/api/chat", { method: "POST", body: { message, task_id: taskId, model, effort, history } });
-    taskId = out.task_id;
+    const out = await api("/api/chat", { method: "POST",
+      body: { message, chat_id: chatId, about: chatId ? null : chatAbout?.id || null, model, effort } });
+    if (gen !== chatGen) return; // switched to another conversation while this one was answering
+    chatId = out.chat_id;
+    chatTitle = out.title || chatTitle;
+    chatAbout = null;
+    saveChat();
+    showChatHead();
     const n = (out.pending_approvals || []).length;
     addMessage("assistant", out.reply || "(no reply)", { approvals: n, usage: summarizeUsage(out), thinking: out.thinking || "" });
     if (n) refreshBadges();
+    loadDecisions();
   } catch (err) {
-    addMessage("assistant", err.message, { cls: "error" });
+    if (gen === chatGen) addMessage("assistant", err.message, { cls: "error" });
   } finally {
-    setThinking(false);
-    saveChat();
+    if (gen === chatGen) setThinking(false);
   }
 }
+
+// Saved conversations
+
+function showChatHead() {
+  const head = $("chat-head");
+  head.replaceChildren();
+  const about = chatAbout?.text || (chatId && chatTitle);
+  head.hidden = !about;
+  if (!about) return;
+  head.append(el("span", chatAbout || currentAbout ? "About" : "Conversation", "chat-head-k"), el("span", about, "chat-head-t"));
+}
+
+let currentAbout = null; // the plan item id the open saved conversation is about
+let chatGen = 0;         // bumps on every switch, so a late reply never lands in another conversation
+
+function clearChat() {
+  chatGen++;
+  $("messages").replaceChildren();
+  setThinking(false);
+  syncEmpty();
+}
+
+function startChat(about = null) {
+  chatId = null;
+  chatAbout = about;
+  currentAbout = about?.id || null;
+  chatTitle = "";
+  saveChat();
+  clearChat();
+  greet();
+  showChatHead();
+  $("chat-input").placeholder = about ? "Ask about this, or ask for a change" : "How can I help you today?";
+  loadDecisions();
+  closeChatsMenu();
+  showTab("chat");
+  $("chat-input").focus();
+}
+
+async function openChat(id) {
+  closeChatsMenu();
+  let chat;
+  try { chat = await api(`/api/chats/${encodeURIComponent(id)}`); } catch (err) {
+    // Gone for good: start fresh. Anything else (locked storage, a restart): try again on the next visit.
+    if (id === chatId && /\(404\)/.test(err.message)) { chatId = null; saveChat(); }
+    if (id === chatId) chatRestored = false;
+    return loadDecisions();
+  }
+  chatId = chat.id;
+  chatAbout = null;
+  currentAbout = chat.about || null;
+  chatTitle = chat.title;
+  saveChat();
+  clearChat();
+  for (const m of chat.messages || []) {
+    const usage = m.usage ? summarizeUsage({ usage: m.usage, cost_usd: m.cost_usd }) : null;
+    addMessage(m.who, m.text, { ts: m.ts, cls: m.cls || "", approvals: 0, usage, thinking: m.thinking || "" });
+  }
+  $("chat-input").placeholder = currentAbout ? "Ask about this, or ask for a change" : "How can I help you today?";
+  showChatHead();
+  loadDecisions();
+}
+
+function closeChatsMenu() {
+  $("chats-menu").hidden = true;
+  $("chat-list").setAttribute("aria-expanded", "false");
+}
+
+async function openChatsMenu() {
+  const menu = $("chats-menu");
+  menu.hidden = false;
+  $("chat-list").setAttribute("aria-expanded", "true");
+  menu.replaceChildren(el("div", "Loading...", "m-head"));
+  placeChatsMenu();
+  try { chatList = await api("/api/chats"); } catch (err) {
+    menu.replaceChildren(el("div", err.message, "m-head"));
+    return;
+  }
+  renderChatsMenu();
+}
+
+function placeChatsMenu() {
+  const menu = $("chats-menu");
+  const r = $("chat-list").getBoundingClientRect();
+  const vh = window.visualViewport?.height ?? window.innerHeight;
+  const above = r.top - 20, below = vh - r.bottom - 20;
+  const up = above > below;
+  menu.classList.toggle("up", up);
+  menu.style.maxHeight = `${Math.max(160, Math.min(up ? above : below, vh * 0.7))}px`;
+}
+
+function renderChatsMenu() {
+  const menu = $("chats-menu");
+  menu.replaceChildren(el("div", "Your conversations", "m-head"));
+  menu.append(menuRow([icon(["M12 5v14", "M5 12h14"]), el("span", "New chat", "m-text")], { onPick: () => startChat() }));
+  if (!chatList.length) menu.append(el("div", "No saved conversations yet.", "m-empty"));
+  for (const c of chatList) {
+    const row = el("div", null, "c-row");
+    const text = el("span", null, "m-text");
+    text.append(el("span", c.title, "m-name"));
+    text.append(el("span", `${c.about ? "About a decision · " : ""}${since(c.updated)}`, "m-meta"));
+    const pick = menuRow([text], { selected: c.id === chatId, onPick: () => openChat(c.id) });
+    const del = button("", (e) => { e.stopPropagation(); askDelete(c, del); }, "icon-btn c-del");
+    del.title = "Delete this conversation";
+    del.setAttribute("aria-label", `Delete ${c.title}`);
+    del.append(icon(["M5 7h14", "M10 11v6", "M14 11v6", "M7 7l1 12h8l1-12", "M9 7V4h6v3"]));
+    row.append(pick, del);
+    menu.append(row);
+  }
+  placeChatsMenu();
+}
+
+// Two clicks to delete: the first turns the bin into a Delete button.
+async function askDelete(c, del) {
+  if (!del.classList.contains("armed")) {
+    del.classList.add("armed");
+    del.replaceChildren(el("span", "Delete"));
+    setTimeout(() => { if (del.isConnected) renderChatsMenu(); }, 4000);
+    return;
+  }
+  try { await api(`/api/chats/${encodeURIComponent(c.id)}`, { method: "DELETE" }); } catch { return; }
+  chatList = chatList.filter((x) => x.id !== c.id);
+  if (c.id === chatId) startChat();
+  renderChatsMenu();
+}
+
+$("chat-list").addEventListener("click", (e) => {
+  e.stopPropagation();
+  $("chats-menu").hidden ? openChatsMenu() : closeChatsMenu();
+});
+$("chats-menu").addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", () => { if (!$("chats-menu").hidden) closeChatsMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("chats-menu").hidden) closeChatsMenu(); });
 
 // Decisions: what waits on you, asked in the chat with an option button each.
 // Picking an option runs the steps Discreto froze for it, which is your
@@ -871,18 +1016,39 @@ async function sendChat(message) {
 async function loadDecisions() {
   let items = [];
   try { items = await api("/api/plan"); } catch { return; }
-  const open = items.filter((i) => i.owner === "you" && i.status !== "done" && i.options?.length);
+  let open = items.filter((i) => i.owner === "you" && i.status !== "done" && i.options?.length);
   const box = $("decisions");
   box.replaceChildren();
+  // A conversation about one decision shows just that one, so its buttons sit next to the answer.
+  if (currentAbout) {
+    const it = items.find((i) => i.id === currentAbout);
+    open = open.filter((i) => i.id === currentAbout);
+    box.hidden = !open.length;
+    if (!open.length) {
+      if (it) { box.hidden = false; box.append(el("div", it.chosen ? `Decided: ${it.chosen.label}.` : "This decision is closed.", "dec-head")); }
+      return;
+    }
+    box.append(el("div", "This conversation is about", "dec-head"));
+    box.append(decisionCard(open[0], { asking: true }));
+    return;
+  }
   box.hidden = !open.length;
   if (!open.length) return;
   box.append(el("div", open.length === 1 ? "1 decision waits on you" : `${open.length} decisions wait on you`, "dec-head"));
   for (const it of open) box.append(decisionCard(it));
 }
 
-function decisionCard(it) {
+function decisionCard(it, { asking = false } = {}) {
   const card = el("div", null, "decision");
-  card.append(el("div", it.text, "dec-q"));
+  const top = el("div", null, "dec-top");
+  top.append(el("div", it.text, "dec-q"));
+  if (!asking) {
+    const ask = button("", () => startChat({ id: it.id, text: it.text }), "dec-ask");
+    ask.append(icon(["M4 5h16v11H9l-5 4z"]), el("span", "Ask about this"));
+    ask.title = "Ask Discreto about this decision, or ask for a change";
+    top.append(ask);
+  }
+  card.append(top);
   if (it.note) card.append(el("div", it.note, "dec-note"));
   if (it.chosen?.note) card.append(el("div", `Last time: ${it.chosen.label}, ${it.chosen.note}.`, "dec-note bad"));
   const opts = el("div", null, "dec-opts");
@@ -912,8 +1078,9 @@ async function choose(it, n, card) {
   try {
     const out = await api(`/api/plan/${encodeURIComponent(it.id)}/choose`, { method: "POST", body: { option: n } });
     const words = (out.results || []).map((r) => r.result?.error ? `Failed: ${r.result.error}` : resultWords(r.tool, r.result)).filter(Boolean);
-    const msg = `You chose **${out.chosen}**.${words.length ? " " + words.join(" ") : ""}${out.status === "failed" ? " A step failed, so the rest didn't run." : ""}`;
-    addMessage("assistant", msg, { cls: out.status === "failed" ? "error" : "" });
+    const msg = `You chose **${out.chosen}** for "${it.text}".${words.length ? " " + words.join(" ") : ""}${out.status === "failed" ? " A step failed, so the rest didn't run." : ""}`;
+    addMessage("assistant", msg, { cls: out.status === "failed" ? "error" : "note" });
+    if (chatId) api(`/api/chats/${encodeURIComponent(chatId)}/note`, { method: "POST", body: { text: msg } }).catch(() => {});
     refreshBadges();
   } catch (err) {
     status.textContent = err.message;
@@ -940,21 +1107,18 @@ $("chat-form").addEventListener("submit", (e) => {
   sendChat(message);
 });
 
-$("chat-new").addEventListener("click", () => {
-  taskId = null;
-  chatLog = [];
-  saveChat();
-  $("messages").replaceChildren();
-  syncEmpty();
-  greet();
-  $("chat-input").focus();
-});
+$("chat-new").addEventListener("click", () => startChat());
 
 for (const q of SUGGESTIONS) $("suggestions").append(button(q, () => sendChat(q), "chip-btn"));
-for (const m of chatLog) addMessage(m.who, m.text, { save: false, ts: m.ts, cls: m.cls, approvals: m.approvals, usage: m.usage, thinking: m.thinking });
 greet();
 syncEmpty();
-loaders.chat = loadDecisions;
+let chatRestored = false;
+loaders.chat = () => {
+  // Reopen the conversation this tab had open, once Discreto is reachable.
+  if (!chatRestored && chatId) { chatRestored = true; return openChat(chatId); }
+  chatRestored = true;
+  return loadDecisions();
+};
 
 $("chat-input").addEventListener("input", autoGrow);
 $("chat-input").addEventListener("keydown", (e) => {

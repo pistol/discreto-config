@@ -7,7 +7,7 @@
         content="default-src 'self'; script-src 'self'; connect-src 'self' https:; style-src 'self'; img-src 'self' data:">
   <title>Discreto</title>
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="styles.css?v=16">
+  <link rel="stylesheet" href="styles.css?v=17">
 </head>
 <body>
   <header id="topbar">
@@ -90,6 +90,7 @@
         <span class="private-pill">Your chats are private</span>
         <h1 id="greeting" class="greeting">Hello!</h1>
       </div>
+      <div id="chat-head" class="chat-head" hidden></div>
       <div id="messages" class="messages"></div>
       <div id="decisions" class="decisions" hidden></div>
       <div id="thinking" class="thinking" hidden><span class="spinner"></span> <span id="thinking-text">Thinking...</span></div>
@@ -98,6 +99,10 @@
           <textarea id="chat-input" rows="1" placeholder="How can I help you today?" required></textarea>
           <div class="composer-bar">
             <button type="button" id="chat-new" class="icon-btn" title="New chat" aria-label="New chat"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+            <div class="chats-pick">
+              <button type="button" id="chat-list" class="icon-btn" title="Your conversations" aria-label="Your conversations" aria-haspopup="menu" aria-expanded="false"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2"/><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3 4v4h4"/></svg></button>
+              <div id="chats-menu" class="model-menu chats-menu up" role="menu" aria-label="Your conversations" hidden></div>
+            </div>
             <span class="grow"></span>
             <div class="model-pick">
               <button type="button" id="model-trigger" class="model-trigger" aria-haspopup="menu" aria-expanded="false"><span id="model-trigger-label">Model</span> <svg class="ico chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
@@ -157,6 +162,6 @@
     <div id="verify-body"></div>
   </dialog>
 
-  <script type="module" src="app.js?v=36"></script>
+  <script type="module" src="app.js?v=37"></script>
 </body>
 </html>

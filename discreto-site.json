@@ -7,6 +7,7 @@
   "digest": "sha256:18bed67a94bbf4aabec95b317cbc95a8aec3c47f2aaaba99a2edd8503070b292",
   "google": true,
   "idle": true,
+  "venice": true,
   "container_id": "4b4989ce-7a75-4977-9436-010a64c701de",
   "idle_minutes": 60
 }

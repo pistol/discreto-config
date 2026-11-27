@@ -17,6 +17,10 @@ networks:
       - kds-proxy.tinfoil.sh
       - tdx-proxy.tinfoil.sh
       - tuf-repo-cdn.sigstore.dev
+      # Venice E2EE models, and Intel's PCS to verify Venice's TDX quotes
+      - api.venice.ai
+      - api.trustedservices.intel.com
+      - certificates.trustedservices.intel.com
   # Broker egress (Tinfoil allows one egress network per container): Gmail over IMAP
   # (read only), the Gmail API for approved cleanup, and Tinfoil's admin API, used
   # only to stop this instance after an hour without use.
@@ -75,6 +79,7 @@ containers:
       - AGENT_TOKEN
       - BROKER_TOKEN
       - TINFOIL_API_KEY
+      - VENICE_API_KEY
     tmpfs:
       /tmp: "size=128m"
     restart: always

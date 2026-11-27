@@ -315,3 +315,29 @@ dl.vd-facts a { color: var(--link); }
 .plan-steps > summary { cursor: pointer; color: var(--accent, inherit); font-weight: 600; }
 ul.plan-cards { list-style: none; margin: 4px 0 0; padding: 0; }
 .plan-item label input:disabled { opacity: .8; }
+
+/* Saved conversations: the menu next to New chat, the title bar over a conversation, and the
+   Ask about this button on decision cards. */
+.chats-pick { position: relative; }
+.chats-menu { right: auto; left: -8px; font-family: inherit; }
+@media (max-width: 560px) { .chats-menu { right: auto; left: -50px; } }
+.m-head { font-size: 12px; color: var(--muted); padding: 6px 12px 4px; }
+.m-empty { font-size: 13px; color: var(--muted); padding: 8px 12px; }
+.m-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-row { display: flex; align-items: center; gap: 2px; }
+.c-row .m-row { flex: 1; min-width: 0; }
+.c-del { flex: none; opacity: .55; }
+.c-del:hover, .c-del:focus-visible { opacity: 1; }
+.c-del.armed { width: auto; padding: 0 10px; opacity: 1; color: var(--bad); font-size: 13px; }
+.chat-head { width: 100%; max-width: 48rem; margin: 0 auto; padding: 10px 0 0; display: flex; gap: 8px;
+  align-items: baseline; font-size: 13px; color: var(--muted); }
+.chat-head[hidden] { display: none; }
+.chat-head-t { color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#tab-chat.is-empty .chat-head { order: 3; justify-content: center; }
+.dec-top { display: flex; align-items: flex-start; gap: 12px; }
+.dec-top .dec-q { flex: 1; }
+.dec-ask { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; border-radius: 10px;
+  padding: 4px 10px; background: transparent; color: var(--fg2); }
+.dec-ask:hover { background: var(--surface); color: var(--fg); }
+.dec-ask .ico { width: 15px; height: 15px; }
+.msg.note { opacity: .9; }
