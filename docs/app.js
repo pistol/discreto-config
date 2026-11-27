@@ -91,6 +91,8 @@ function watchRestart() {
 
 // Verification
 
+let verifyDoc = null, verifyError = "", runInfo = null;
+
 async function verify() {
   const badge = $("verify");
   try {
@@ -101,6 +103,8 @@ async function verify() {
     badge.textContent = "Enclave verified";
     badge.className = "badge ok";
     badge.title = JSON.stringify(doc, null, 2);
+    verifyDoc = doc;
+    paintVerify("ok");
     return true;
   } catch (err) {
     let detail = String(err && err.message ? err.message : err);
@@ -109,6 +113,9 @@ async function verify() {
     } catch {}
     badge.textContent = "Not verified";
     badge.className = "badge bad";
+    try { verifyDoc = client ? await client.getVerificationDocument() : null; } catch { verifyDoc = null; }
+    verifyError = String(err && err.message ? err.message : err);
+    paintVerify("bad");
     $("blocked-detail").textContent = detail;
     $("blocked").hidden = false;
     client = null;
@@ -125,7 +132,8 @@ function signOut() {
   localStorage.removeItem(GITHUB_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
   $("app").hidden = true;
-  $("pause").hidden = true;
+  $("topbar").hidden = false;
+  $("idle-note").hidden = false;
   $("login").hidden = false;
 }
 
@@ -146,7 +154,9 @@ async function start() {
   }
   $("login").hidden = true;
   $("app").hidden = false;
-  $("pause").hidden = false;
+  // In the app the shield and pause live in the rail, so the page starts at the top.
+  $("topbar").hidden = true;
+  $("idle-note").hidden = true;
   // Unlock first: until then the enclave answers from an empty in-memory
   // database, so a tab loaded earlier shows nothing.
   await checkStorage();
@@ -172,13 +182,16 @@ function duration(s) {
 
 async function loadHeader() {
   const parts = [];
+  runInfo = {};
   try {
     const v = await api("/api/version");
+    runInfo.version = v.version;
+    runInfo.started = v.started;
     parts.push(`Discreto v${v.version}`, `running since ${since(v.started)}`);
   } catch {}
   try {
     const i = await api("/api/idle");
-    if (i.enabled) parts.push(`stops after ${i.minutes} minutes without use`);
+    if (i.enabled) { runInfo.idleMinutes = i.minutes; parts.push(`stops after ${i.minutes} minutes without use`); }
   } catch {}
   $("idle-note").textContent = parts.join(" · ");
   refreshBadges();
@@ -222,6 +235,7 @@ function paintBadges() {
 }
 async function refreshBadges() {
   try { lastSummary = await api("/api/summary"); } catch { return; }
+  if (typeof lastSummary.paused === "boolean") paintPause(lastSummary.paused);
   const active = document.querySelector("nav button.active");
   if (active && (active.dataset.tab === "memory" || active.dataset.tab === "log")) markSeen(active.dataset.tab);
   else paintBadges();
@@ -1179,14 +1193,17 @@ function describeStep(r) {
   return { title, facts, body };
 }
 
-// The plan: what waits on you and what Discreto is working through, ticked off here.
-async function loadPlan() {
+// The plan: what waits on you and what Discreto is working through. An item that
+// carries steps shows them here to approve in place, and reads as done once every
+// step is decided.
+async function loadPlan(pendingById = new Map()) {
   const box = $("plan");
   let items = [];
   try { items = await api("/api/plan"); } catch { items = []; }
   box.replaceChildren();
   box.hidden = !items.length;
-  if (!items.length) return;
+  const claimed = new Set();
+  if (!items.length) return claimed;
   const sections = [["you", "Waiting on you", "ul"], ["discreto", "Discreto is working on", "ol"]];
   for (const [owner, heading, tag] of sections) {
     const mine = items.filter((i) => i.owner === owner);
@@ -1196,49 +1213,88 @@ async function loadPlan() {
     const sec = el("div", null, "plan-sec");
     sec.append(el("h3", `${heading} (${open.length})`));
     const list = el(tag, null, "plan-list");
-    for (const it of open) list.append(planRow(it));
+    for (const it of open) {
+      for (const a of it.steps?.waiting || []) if (pendingById.has(a)) claimed.add(a);
+      list.append(planRow(it, pendingById));
+    }
+    if (!open.length) list.append(el("li", "Nothing open.", "meta"));
     sec.append(list);
     if (done.length) {
       const more = el("details", null, "plan-done");
       more.append(el("summary", `${done.length} done`));
       const dl = el("ul", null, "plan-list");
-      for (const it of done) dl.append(planRow(it));
+      for (const it of done) dl.append(planRow(it, pendingById));
       more.append(dl);
       sec.append(more);
     }
     box.append(sec);
   }
+  return claimed;
 }
 
-function planRow(it) {
+function stepWords(st) {
+  const bits = [];
+  if (st.approved) bits.push(`${st.approved} approved`);
+  if (st.denied) bits.push(`${st.denied} denied`);
+  if (st.gone) bits.push(`${st.gone} set aside`);
+  return bits.join(", ");
+}
+
+function planRow(it, pendingById) {
   const li = el("li", null, it.status === "done" ? "plan-item done" : "plan-item");
   const label = el("label");
   const box = document.createElement("input");
   box.type = "checkbox";
   box.checked = it.status === "done";
+  if (it.auto_done) { box.disabled = true; box.title = "Done: every step was decided"; }
   box.addEventListener("change", async () => {
     box.disabled = true;
     try {
       await api(`/api/plan/${encodeURIComponent(it.id)}`, { method: "POST", body: { done: box.checked } });
-      await loadPlan();
+      await loadApprovals();
     } catch { box.checked = !box.checked; box.disabled = false; }
   });
   label.append(box, el("span", it.text));
   li.append(label);
   if (it.note) li.append(el("div", it.note, "meta"));
+  const st = it.steps;
+  if (st) {
+    const waiting = (st.waiting || []).map((a) => pendingById.get(a)).filter(Boolean);
+    const past = stepWords(st);
+    if (it.status !== "done" && waiting.length) {
+      const more = el("details", null, "plan-steps");
+      more.append(el("summary", `${plural(waiting.length, "step")} to review${past ? ` (${past})` : ""}`));
+      const cards = waiting.map((r) => approvalCard(r));
+      const ul = el("ul", null, "plan-cards");
+      if (cards.length > 1) {
+        const head = el("li", null, "group-head");
+        head.append(el("span", "Each step shows exactly what it changes."), approveAllButton(cards, cards.length));
+        ul.append(head);
+      }
+      ul.append(...cards);
+      more.append(ul);
+      li.append(more);
+    } else if (past) {
+      li.append(el("div", `${plural(st.total, "step")}: ${past}`, "meta"));
+    }
+  }
   if (it.options?.length && it.status !== "done") li.append(button("Decide in Chat", () => showTab("chat"), "link"));
   if (it.chosen) li.append(el("div", `You chose: ${it.chosen.label}${it.chosen.note ? ` (${it.chosen.note})` : ""}`, "meta"));
   return li;
 }
 
 async function loadApprovals() {
-  loadPlan();
   const list = $("approvals");
   const rows = await api("/api/approvals");
+  const all = rows.filter((r) => r.status === "pending");
+  const claimed = await loadPlan(new Map(all.map((r) => [r.id, r])));
   list.replaceChildren();
-  const pending = rows.filter((r) => r.status === "pending");
-  if (!pending.length) { list.append(el("li", "No steps are waiting for you.", "meta")); return; }
-  list.append(el("li", `${plural(pending.length, "step")} wait for you. Nothing changes until you approve each one.`, "meta summary"));
+  const pending = all.filter((r) => !claimed.has(r.id));
+  if (!pending.length) {
+    list.append(el("li", claimed.size ? "No other steps are waiting for you." : "No steps are waiting for you.", "meta"));
+    return;
+  }
+  list.append(el("li", `${plural(pending.length, "step")} ${claimed.size ? "outside the plan " : ""}wait for you. Nothing changes until you approve each one.`, "meta summary"));
   const order = Object.keys(KINDS);
   const groups = new Map();
   for (const r of pending) {
@@ -1671,11 +1727,116 @@ $("log-all").addEventListener("change", () => loadLog().catch((err) => showError
 // Pause
 
 let paused = false;
+function paintPause(p) {
+  paused = p;
+  const b = $("pause");
+  const label = paused ? "Agents are paused. Resume agents" : "Pause agents";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-pressed", String(paused));
+  b.classList.toggle("on", paused);
+}
 $("pause").addEventListener("click", async () => {
-  const out = await api("/api/pause", { method: "POST", body: { paused: !paused } });
-  paused = out.paused;
-  $("pause").textContent = paused ? "Resume agents" : "Pause agents";
+  const b = $("pause");
+  b.disabled = true;
+  try {
+    const out = await api("/api/pause", { method: "POST", body: { paused: !paused } });
+    paintPause(out.paused);
+  } catch (err) { alertLine(err.message); }
+  b.disabled = false;
 });
+
+// Verification details: what the shield in the rail vouches for.
+
+const STEP_WORDS = {
+  fetchDigest: ["Found the published release", "The newest release of the config repo and its digest were fetched from GitHub."],
+  verifyCode: ["The release is signed by its build", "Sigstore shows the release was built by GitHub Actions from the config repo, and gives the code's expected measurement."],
+  verifyEnclave: ["The enclave is real confidential hardware", "The hardware's attestation report is signed by the chip maker's keys, so the machine is a genuine, isolated enclave."],
+  compareMeasurements: ["The enclave runs exactly that release", "The measurement the hardware reports matches the one the signed release expects."],
+  verifyCertificate: ["This connection ends inside the enclave", "The TLS and encryption keys you're talking to are the ones the attested enclave holds, so no one in between can read your traffic."],
+};
+
+function platformName(doc) {
+  const t = (doc && doc.enclaveMeasurement && doc.enclaveMeasurement.measurement && doc.enclaveMeasurement.measurement.type) || "";
+  if (t.includes("tdx") && t.includes("snp")) return "AMD SEV-SNP or Intel TDX";
+  if (t.includes("tdx")) return "Intel TDX";
+  if (t.includes("snp")) return "AMD SEV-SNP";
+  return "";
+}
+
+function paintVerify(stateName) {
+  const b = $("verify-btn");
+  b.classList.remove("pending", "ok", "bad");
+  b.classList.add(stateName);
+  const label = stateName === "ok" ? "Enclave verified. Show what was checked"
+    : stateName === "bad" ? "Enclave not verified. Show why" : "Checking the enclave";
+  b.title = label;
+  b.setAttribute("aria-label", label);
+}
+
+function short(x, n = 16) {
+  x = String(x || "");
+  return x.length > n * 2 ? `${x.slice(0, n)}...${x.slice(-8)}` : x;
+}
+
+function renderVerify() {
+  const body = $("verify-body");
+  const doc = verifyDoc || {};
+  const ok = Boolean(doc.securityVerified);
+  $("verify-title").textContent = ok ? "Enclave verified" : "Enclave not verified";
+  body.replaceChildren();
+  body.append(el("p", ok
+    ? "Before sending anything, this page checked that Discreto runs the code published in your config repo, inside confidential hardware that no one else can read, not Tinfoil and not the cloud host."
+    : `This page did not send anything to Discreto, because a check failed${verifyError ? `: ${verifyError}` : "."}`, "vd-lead"));
+  const steps = doc.steps || {};
+  const list = el("ul", null, "vd-steps");
+  for (const [key, [title, more]] of Object.entries(STEP_WORDS)) {
+    const st = (steps[key] && steps[key].status) || "pending";
+    const li = el("li", null, `vd-step ${st}`);
+    li.append(el("span", st === "success" ? "✓" : st === "failed" ? "✗" : "·", "vd-mark"));
+    const text = el("div");
+    text.append(el("div", title, "vd-title"), el("div", st === "failed" && steps[key].error ? steps[key].error : more, "meta"));
+    li.append(text);
+    list.append(li);
+  }
+  body.append(list);
+  const facts = el("dl", null, "vd-facts");
+  const add = (k, v, href) => {
+    if (!v) return;
+    facts.append(el("dt", k));
+    const dd = el("dd");
+    if (href) {
+      const a = el("a", v);
+      a.href = href; a.target = "_blank"; a.rel = "noopener";
+      dd.append(a);
+    } else dd.append(el("span", v));
+    facts.append(dd);
+  };
+  const repo = doc.configRepo || CONFIG_REPO;
+  add("Release", doc.releaseTag, doc.releaseTag ? `https://github.com/${repo}/releases/tag/${encodeURIComponent(doc.releaseTag)}` : "");
+  add("Config repo", repo, `https://github.com/${repo}`);
+  add("Hardware", platformName(doc));
+  add("Enclave", doc.enclaveHost);
+  add("Code fingerprint", short(doc.codeFingerprint));
+  add("Enclave fingerprint", short(doc.enclaveFingerprint));
+  add("TLS key", short(doc.tlsPublicKey));
+  add("Checked", doc.verifiedAt ? new Date(doc.verifiedAt).toLocaleString() : "");
+  if (doc.verifier && doc.verifier.version) add("Checked by", `Tinfoil verifier ${doc.verifier.version}, running in this page`);
+  if (runInfo && runInfo.version) add("Running", `Discreto v${runInfo.version}${runInfo.started ? `, since ${since(runInfo.started)}` : ""}`);
+  if (runInfo && runInfo.idleMinutes) add("Idle stop", `after ${runInfo.idleMinutes} minutes without use`);
+  body.append(facts);
+  const raw = el("details", null, "vd-raw");
+  raw.append(el("summary", "Full verification record"));
+  const pre = el("pre", JSON.stringify(doc, null, 2));
+  raw.append(pre, button("Copy", async (e) => {
+    try { await navigator.clipboard.writeText(pre.textContent); e.target.textContent = "Copied"; } catch {}
+  }));
+  body.append(raw);
+}
+
+$("verify-btn").addEventListener("click", () => { renderVerify(); $("verify-dialog").showModal(); });
+$("verify-close").addEventListener("click", () => $("verify-dialog").close());
+$("verify-dialog").addEventListener("click", (e) => { if (e.target === $("verify-dialog")) $("verify-dialog").close(); });
 
 // Boot
 

@@ -20,7 +20,7 @@
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--fg); background: var(--canvas); padding: env(safe-area-inset-top) 12px 12px; }
+body { margin: 0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--fg); background: var(--canvas); padding: calc(env(safe-area-inset-top) + 12px) 12px 12px; }
 header { display: flex; justify-content: flex-end; gap: 8px; align-items: center; padding: 8px 0; }
 .badge { font-size: 13px; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line); }
 .badge.ok { color: var(--ok); border-color: var(--ok); }
@@ -63,9 +63,9 @@ table.usage th:nth-child(2), table.usage td:nth-child(2) { text-align: left; }
 #log-usage { margin: 8px 0 14px; }
 
 /* Approval cards */
-#approvals > li.summary { border: 0; padding: 4px 0; }
-#approvals > li.group-head { border: 0; padding: 14px 0 4px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-#approvals > li.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
+:is(#approvals, .plan-cards) > li.summary { border: 0; padding: 4px 0; }
+:is(#approvals, .plan-cards) > li.group-head { border: 0; padding: 14px 0 4px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+:is(#approvals, .plan-cards) > li.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
 .card-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .card-title { font-size: 17px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 0; }
@@ -91,9 +91,9 @@ ul.item-list > li:last-child { border-bottom: 0; }
 ul.item-list .chips { margin-top: 4px; }
 button.link { border: 0; padding: 6px 0; text-decoration: underline; font-size: 14px; }
 button.primary { font-weight: 600; background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-#approvals details { margin-top: 8px; font-size: 13px; }
-#approvals details summary { cursor: pointer; color: var(--muted); }
-#approvals .reason { margin-top: 4px; color: var(--muted); }
+:is(#approvals, .plan-cards) details { margin-top: 8px; font-size: 13px; }
+:is(#approvals, .plan-cards) details summary { cursor: pointer; color: var(--muted); }
+:is(#approvals, .plan-cards) .reason { margin-top: 4px; color: var(--muted); }
 
 /* Header, badges, banner */
 nav button { position: relative; }
@@ -107,14 +107,14 @@ nav button { position: relative; }
 button:disabled { opacity: .45; cursor: default; }
 
 /* Approvals: working and done states, approve all */
-#approvals > li.card.working { opacity: .7; }
-#approvals > li.card.done { border-color: var(--ok); }
-#approvals > li.card.failed { border-color: var(--bad); }
+:is(#approvals, .plan-cards) > li.card.working { opacity: .7; }
+:is(#approvals, .plan-cards) > li.card.done { border-color: var(--ok); }
+:is(#approvals, .plan-cards) > li.card.failed { border-color: var(--bad); }
 .step-status { font-size: 14px; margin-top: 8px; }
 .step-status.ok { color: var(--ok); font-weight: 600; }
 .step-status.bad { color: var(--bad); }
-#approvals > li.group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-#approvals > li.group-head button { text-transform: none; letter-spacing: 0; font-size: 13px; padding: 4px 10px; }
+:is(#approvals, .plan-cards) > li.group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+:is(#approvals, .plan-cards) > li.group-head button { text-transform: none; letter-spacing: 0; font-size: 13px; padding: 4px 10px; }
 
 /* Log */
 .log-head { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
@@ -156,11 +156,23 @@ ul.plan-list { list-style: none; padding-left: 0; }
 .plan-item input[type=checkbox] { padding: 0; width: auto; }
 
 /* App shell: an icon rail on the left, as in Tinfoil Chat */
-#app:not([hidden]) { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 16px; min-height: calc(100dvh - 70px); }
+#app:not([hidden]) { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 16px; min-height: calc(100dvh - 24px); }
 .content { min-width: 0; max-width: 60rem; width: 100%; margin: 0 auto; }
-.rail { position: sticky; top: 8px; align-self: start; display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 12px 6px; border: 1px solid var(--line); border-radius: 18px; background: var(--raised); height: calc(100dvh - 90px); }
-.rail-logo svg { width: 26px; height: 26px; fill: none; stroke: var(--fg); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; margin: 4px 0 12px; }
+.rail { position: sticky; top: 12px; align-self: start; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 6px; border: 1px solid var(--line); border-radius: 18px; background: var(--raised); height: calc(100dvh - 24px); }
+.rail-grow { flex: 1; }
+.rail button.rail-verify { margin: 0 0 10px; color: var(--muted); }
+.rail-verify svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.rail button.rail-verify.ok { color: var(--ok); }
+.rail button.rail-verify.bad { color: var(--bad); }
+.rail-dot { position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); border: 2px solid var(--raised); }
+.rail-verify.ok .rail-dot { background: var(--ok); }
+.rail-verify.bad .rail-dot { background: var(--bad); }
+.rail button.rail-pause .ico-play { display: none; }
+.rail button.rail-pause:hover { color: var(--bad); }
+.rail button.rail-pause.on { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.rail button.rail-pause.on .ico-pause { display: none; }
+.rail button.rail-pause.on .ico-play { display: block; }
 .rail button { position: relative; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; color: var(--muted); }
 .rail button:hover { background: var(--surface); color: var(--fg); }
 .rail button.active { background: var(--surface); color: var(--fg); }
@@ -170,11 +182,12 @@ ul.plan-list { list-style: none; padding-left: 0; }
 @media (max-width: 640px) {
   #app:not([hidden]) { grid-template-columns: minmax(0, 1fr); }
   .rail { position: sticky; top: 0; z-index: 20; flex-direction: row; justify-content: space-around; height: auto; padding: 4px; border-radius: 14px; }
-  .rail-logo { display: none; }
+  .rail-grow { display: none; }
+  .rail button.rail-verify { margin: 0; }
 }
 
 /* Chat, after Tinfoil Chat */
-#tab-chat { display: flex; flex-direction: column; min-height: calc(100dvh - 110px);
+#tab-chat { display: flex; flex-direction: column; min-height: calc(100dvh - 24px);
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
   background-size: 24px 24px; border-radius: 16px; padding: 0 12px; }
 #tab-chat[hidden] { display: none; }
@@ -277,3 +290,28 @@ a { color: var(--link); }
 .dec-what .gmail-link { margin: 0; font-size: 12px; }
 .dec-status { font-size: 13px; margin-top: 10px; color: var(--muted); }
 @media (max-width: 560px) { .dec-opt { grid-template-columns: 1fr; gap: 4px; } }
+
+/* What the shield vouches for */
+.verify-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--raised); color: var(--fg); }
+.verify-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.vd-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vd-head h2 { margin: 0; font-size: 20px; }
+.vd-lead { color: var(--fg2); font-size: 14px; }
+ul.vd-steps { margin: 10px 0; }
+li.vd-step { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
+.vd-mark { width: 20px; flex: none; text-align: center; font-weight: 700; color: var(--muted); }
+li.vd-step.success .vd-mark { color: var(--ok); }
+li.vd-step.failed .vd-mark { color: var(--bad); }
+.vd-title { font-weight: 600; font-size: 15px; }
+dl.vd-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 13px; margin: 12px 0; }
+dl.vd-facts dt { color: var(--muted); }
+dl.vd-facts dd { margin: 0; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+dl.vd-facts a { color: var(--link); }
+.vd-raw summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.vd-raw pre { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+
+/* Plan items that carry steps: the steps open under the item */
+.plan-steps { margin: 4px 0 6px 26px; font-size: 14px; }
+.plan-steps > summary { cursor: pointer; color: var(--accent, inherit); font-weight: 600; }
+ul.plan-cards { list-style: none; margin: 4px 0 0; padding: 0; }
+.plan-item label input:disabled { opacity: .8; }
