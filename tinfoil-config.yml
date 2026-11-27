@@ -3,8 +3,8 @@
 # without the storage key. Released as a prerelease so clients keep verifying
 # Discreto against the latest normal release.
 cvm-version: 0.14.18
-cpus: 1
-memory: 2048
+cpus: 2
+memory: 8192
 
 networks:
   internal: {}
