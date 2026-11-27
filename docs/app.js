@@ -352,6 +352,7 @@ async function checkStorage() {
     $("storage-msg").textContent = "The saved storage key didn't unlock the volume. Enter the key once; it replaces the saved one.";
   }
   $("storage-passkey").hidden = !hasVault();
+  $("storage-show").hidden = !hasVault();
   $("storage").hidden = false;
 }
 
@@ -366,6 +367,39 @@ $("storage-passkey").addEventListener("click", async () => {
     $("storage-msg").textContent = `Touch ID didn't open the saved keys: ${err.message}`;
   }
 });
+
+// Show the storage key saved with Touch ID, so it can be checked or backed up.
+let revealTimer = null;
+function hideKey() {
+  $("storage-shown").textContent = "";
+  $("storage-shown-info").textContent = "";
+  $("storage-reveal").hidden = true;
+  clearTimeout(revealTimer);
+}
+$("storage-show").addEventListener("click", async () => {
+  try {
+    const v = await openVault();
+    vaultUpdate = v.update;
+    const key = v.secrets.storageKey;
+    if (!key) { $("storage-msg").textContent = "No storage key is saved with Touch ID on this device."; return; }
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+    const fp = Array.from(digest.slice(0, 4), (b) => b.toString(16).padStart(2, "0")).join("");
+    let bytes = "not valid base64";
+    try { bytes = `${atob(key).length} bytes`; } catch {}
+    $("storage-shown").textContent = key;
+    $("storage-shown-info").textContent = `${key.length} characters, ${bytes}, fingerprint ${fp}. Hidden again in 60 seconds.`;
+    $("storage-reveal").hidden = false;
+    clearTimeout(revealTimer);
+    revealTimer = setTimeout(hideKey, 60000);
+  } catch (err) {
+    $("storage-msg").textContent = `Touch ID didn't open the saved keys: ${err.message}`;
+  }
+});
+$("storage-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("storage-shown").textContent); showToast("Copied."); }
+  catch { showToast("Couldn't copy; select the key and copy it by hand."); }
+});
+$("storage-hide").addEventListener("click", hideKey);
 
 $("storage-form").addEventListener("submit", async (e) => {
   e.preventDefault();

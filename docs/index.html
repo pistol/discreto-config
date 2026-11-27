@@ -69,6 +69,13 @@
         <button type="submit">Unlock</button>
         <button type="button" id="storage-new">First time: create a key</button>
       </form>
+      <p><button type="button" id="storage-show" hidden>Show the key saved with Touch ID</button></p>
+      <div id="storage-reveal" hidden>
+        <pre id="storage-shown"></pre>
+        <p id="storage-shown-info"></p>
+        <button type="button" id="storage-copy">Copy</button>
+        <button type="button" id="storage-hide">Hide</button>
+      </div>
       <div id="storage-create" hidden>
         <p>Save this key in your password manager now. It can't be recovered, and losing it loses Discreto's saved data.</p>
         <pre id="storage-newkey"></pre>
@@ -134,6 +141,6 @@
     </div>
   </main>
 
-  <script type="module" src="app.js?v=31"></script>
+  <script type="module" src="app.js?v=32"></script>
 </body>
 </html>
