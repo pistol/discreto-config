@@ -4,7 +4,7 @@
   "config_repo_name": "discreto-config",
   "org": "discreto",
   "instance": "app",
-  "digest": "sha256:cdf0f54d1e044c77f336217df47ff35deafe4e2e49c3d635ff3036c412bde80c",
+  "digest": "sha256:18bed67a94bbf4aabec95b317cbc95a8aec3c47f2aaaba99a2edd8503070b292",
   "google": true,
   "idle": true,
   "container_id": "4b4989ce-7a75-4977-9436-010a64c701de",
