@@ -1,104 +1,31 @@
-# Tinfoil Container config for Discreto, written by scripts/new_config_repo.py.
-# Edit discreto-site.json (or pass flags) and re-run the script instead of editing by hand.
-# Clients verify the enclave against signed releases of this file, so this repo must stay public.
+# Debug-only probe for the discreto-data volume. NOT Discreto: no secrets, no mail,
+# no internet. It exists so the volume can be looked at from a debug instance
+# without the storage key. Released as a prerelease so clients keep verifying
+# Discreto against the latest normal release.
 cvm-version: 0.14.18
-cpus: 2
-memory: 8192
+cpus: 1
+memory: 2048
 
 networks:
-  # Broker and agent talk to each other here. No internet.
   internal: {}
-  # Agent egress: the inference router plus the hosts the Tinfoil SDK uses to verify it.
-  inference:
-    egress: allowlist
-    allow:
-      - inference.tinfoil.sh
-      - github-proxy.tinfoil.sh
-      - kds-proxy.tinfoil.sh
-      - tdx-proxy.tinfoil.sh
-      - tuf-repo-cdn.sigstore.dev
-  # Broker egress (Tinfoil allows one egress network per container): Gmail over IMAP
-  # (read only), the Gmail API for approved cleanup, and Tinfoil's admin API, used
-  # only to stop this instance after an hour without use.
-  mail:
-    egress: allowlist
-    allow:
-      - imap.gmail.com
-      - oauth2.googleapis.com
-      - gmail.googleapis.com
-      - api.tinfoil.sh
 
 containers:
-  - name: broker
+  - name: probe
     image: "ghcr.io/pistol/discreto@sha256:6763a54c10b1f1407f1f1ea7b285e30ff2319f95dc753cd3c88da43015b4b938"
-    command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
-    networks: [internal, mail]
-    env:
-      - AGENT_URL: "http://agent:8001"
-      - POLICY_PATH: "/app/config/policy.yml"
-      - DATA_DIR: "/data"
-      # Encrypted volume, unlocked from the web app with the user's key (no key-secret, so Tinfoil never has it)
-      - PERSIST_DIR: "/persist"
-      - PERSIST_VOLUME: "workspace"
-      - TRIAGE_INTERVAL_S: "1800"
-      - ALLOWED_ORIGINS: "https://pistol.github.io"
-      # Enables /mcp and OAuth for the Claude custom connector. Must be this enclave's own URL.
-      - PUBLIC_URL: "https://app.discreto.containers.tinfoil.dev"
-      # Stop after this many minutes without use; 0 turns it off. Needs TINFOIL_STOP_KEY.
-      - IDLE_STOP_MINUTES: "60"
-      - TINFOIL_CONTAINER_ID: "4b4989ce-7a75-4977-9436-010a64c701de"
-    secrets:
-      - BROKER_TOKEN
-      - AGENT_TOKEN
-      - USER_TOKENS
-      - MAIL_ACCOUNTS
-      - RUNLOG_KEY
-      - GOOGLE_OAUTH
-      - TINFOIL_STOP_KEY
-    volumes: ["data:/data"]
+    # Serves one healthz file so the instance shows as healthy; does nothing else.
+    command: ["sh", "-c", "mkdir -p /tmp/www && echo ok > /tmp/www/healthz && exec python -m http.server 8000 --bind 0.0.0.0 --directory /tmp/www"]
+    networks: [internal]
     persistent_volumes: ["workspace:/persist"]
     tmpfs:
-      /tmp: "size=64m"
+      /tmp: "size=16m"
     restart: always
 
-  - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:6763a54c10b1f1407f1f1ea7b285e30ff2319f95dc753cd3c88da43015b4b938"
-    command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
-    networks: [internal, inference]
-    env:
-      - BROKER_URL: "http://broker:8000"
-      - MODELS_PATH: "/app/config/models.yml"
-      - TINFOIL_ENCLAVE: "inference.tinfoil.sh"
-      - XDG_CACHE_HOME: "/tmp/cache"
-      - XDG_DATA_HOME: "/tmp/data"
-    secrets:
-      - AGENT_TOKEN
-      - BROKER_TOKEN
-      - TINFOIL_API_KEY
-    tmpfs:
-      /tmp: "size=128m"
-    restart: always
-
-# Unlocked at runtime by the user's key through the volume's control socket.
 volumes:
   - name: workspace
     owner: "10001:10001"
 
 shim:
-  upstream-container: broker
+  upstream-container: probe
   upstream-port: 8000
   paths:
     - /healthz
-    - /api/*
-    # MCP endpoint and OAuth for the Claude custom connector
-    - /mcp
-    - /oauth/*
-    - /.well-known/oauth-protected-resource
-    - /.well-known/oauth-protected-resource/mcp
-    - /.well-known/oauth-authorization-server
-    # Gmail cleanup: Google sign-in page and its callback
-    - /google/*
-  origins:
-    - "https://pistol.github.io"
-    # the OAuth sign-in page posts back to the enclave itself
-    - "https://app.discreto.containers.tinfoil.dev"
