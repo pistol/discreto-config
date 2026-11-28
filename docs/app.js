@@ -670,6 +670,7 @@ function modelRow(m, selected) {
   if (m.provider && m.provider !== "tinfoil") {
     text.append(el("span", `${m.provider === "venice" ? "Venice" : m.provider}${m.privacy ? ` · ${m.privacy}` : ""}`, "m-badge"));
   }
+  if (m.caveat) text.append(el("span", m.caveat, "m-badge m-warn"));
   return menuRow([modelIcon(m), text], { selected, onPick: () => { setPick({ model: m.id, effort: null }); closeModelMenu(); } });
 }
 
@@ -815,6 +816,8 @@ function addMessage(who, text, { ts = Date.now() / 1000, cls = "", approvals = 0
     div.append(d);
   }
   div.append(who === "assistant" ? renderMarkdown(text) : el("span", text, "bubble"));
+  // A model with a caveat says so under every reply it wrote, not just in the menu.
+  for (const c of usage?.caveats || []) div.append(el("div", c, "caveat"));
   if (approvals) div.append(button(`Open Approvals (${approvals} waiting)`, () => showTab("approvals"), "link"));
   const foot = el("div", null, "when");
   foot.append(el("span", since(ts)));
@@ -849,7 +852,8 @@ function summarizeUsage(out) {
   const u = out.usage || {};
   const t = u.totals || {};
   const models = Object.keys(u.by_model || {}).map((id) => modelById(id)?.label || id);
-  return { models, tokens_in: t.tokens_in ?? null, tokens_out: t.tokens_out ?? null, ms: t.ms || 0,
+  const caveats = [...new Set(Object.keys(u.by_model || {}).map((id) => modelById(id)?.caveat).filter(Boolean))];
+  return { models, caveats, tokens_in: t.tokens_in ?? null, tokens_out: t.tokens_out ?? null, ms: t.ms || 0,
     cost: typeof out.cost_usd === "number" ? out.cost_usd : null };
 }
 

@@ -252,6 +252,9 @@ details.thought[open] summary::before { transform: rotate(90deg); }
 .m-label { font-weight: 500; }
 .m-desc, .m-meta, .m-muted { font-size: 12px; color: var(--muted); }
 .m-meta { opacity: .9; }
+.m-badge.m-warn, .msg .caveat { background: none; color: #b26a00; border: 1px solid #b26a00; }
+.msg .caveat { margin-top: 6px; font-size: 12px; padding: 2px 8px; border-radius: 6px; width: fit-content; max-width: 100%; }
+@media (prefers-color-scheme: dark) { .m-badge.m-warn, .msg .caveat { color: #f0a640; border-color: #f0a640; } }
 .m-badge { align-self: flex-start; margin-top: 4px; font-size: 12px; padding: 1px 8px; border-radius: 6px; background: var(--badge-bg); color: var(--badge-fg); }
 .m-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #fff; flex: none; background: hsl(200 50% 40%); }
 .m-icon[data-hue="1"] { background: hsl(230 70% 60%); } .m-icon[data-hue="2"] { background: hsl(160 45% 38%); }
