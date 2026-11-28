@@ -670,6 +670,7 @@ let offer = null;   // { default, auto_levels, models }
 let pick = (() => { try { return JSON.parse(localStorage.getItem(MODEL_KEY)) || {}; } catch { return {}; } })();
 let showOther = false;
 let showEffort = false;
+const openGroups = new Set(); // provider sections (e.g. Phala) the user expanded
 
 function fmtContext(n) { return n >= 1e6 ? `${n / 1e6}M` : `${Math.round(n / 1000)}K`; }
 function fmtPrice(n) { return `$${n.toFixed(2)}`; }
@@ -730,7 +731,8 @@ function modelRow(m, selected) {
   if (m.experimental) text.append(el("span", "Experimental", "m-badge"));
   // Runs outside Tinfoil: say where, and what protects the mail.
   if (m.provider && m.provider !== "tinfoil") {
-    text.append(el("span", `${m.provider === "venice" ? "Venice" : m.provider}${m.privacy ? ` · ${m.privacy}` : ""}`, "m-badge"));
+    const where = m.group || (m.provider === "venice" ? "Venice" : m.provider === "aci" ? "Phala" : m.provider);
+    text.append(el("span", `${where}${m.privacy ? ` · ${m.privacy}` : ""}`, "m-badge"));
   }
   if (m.caveat) text.append(el("span", m.caveat, "m-badge m-warn"));
   return menuRow([modelIcon(m), text], { selected, onPick: () => { setPick({ model: m.id, effort: null }); closeModelMenu(); } });
@@ -780,8 +782,16 @@ function renderModelMenu() {
     }
     parts.push(el("div", null, "m-div"));
   }
-  const top = offer.models.filter((m) => !m.other || m.id === model);
-  const other = offer.models.filter((m) => m.other && m.id !== model);
+  // The picked model always shows at the top. Grouped models (one provider's) sit under
+  // their own heading, and the rest of the unpicked "other" ones under Other models.
+  const top = offer.models.filter((m) => m.id === model || (!m.other && !m.group));
+  const other = offer.models.filter((m) => m.other && !m.group && m.id !== model);
+  const groups = new Map();
+  for (const m of offer.models) {
+    if (!m.group || m.id === model) continue;
+    if (!groups.has(m.group)) groups.set(m.group, []);
+    groups.get(m.group).push(m);
+  }
   for (const m of top) parts.push(modelRow(m, m.id === model));
   const cur = model !== "auto" ? modelById(model) : null;
   if (cur && cur.effort.length) {
@@ -801,6 +811,17 @@ function renderModelMenu() {
       list.append(el("p", "Higher effort means more thorough answers, but takes longer and costs more.", "m-note"));
       parts.push(list);
     }
+  }
+  for (const [name, list] of groups) {
+    parts.push(el("div", null, "m-div"));
+    const open = openGroups.has(name);
+    const row = el("button", null, "m-row");
+    row.type = "button";
+    row.setAttribute("aria-expanded", String(open));
+    row.append(el("span", `${name} models`, "m-label grow"), icon(open ? ["M6 15l6-6 6 6"] : ICON_CHEV_DOWN));
+    row.addEventListener("click", (e) => { e.stopPropagation(); open ? openGroups.delete(name) : openGroups.add(name); renderModelMenu(); });
+    parts.push(row);
+    if (open) for (const m of list) parts.push(modelRow(m, false));
   }
   if (other.length) {
     parts.push(el("div", null, "m-div"));

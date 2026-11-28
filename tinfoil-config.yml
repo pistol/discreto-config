@@ -21,6 +21,8 @@ networks:
       - api.venice.ai
       - api.trustedservices.intel.com
       - certificates.trustedservices.intel.com
+      # Phala's private-AI gateway called directly, and Intel's PCS for its TDX quotes
+      - inference.phala.com
   # Broker egress (Tinfoil allows one egress network per container): Gmail over IMAP
   # (read only), the Gmail API for approved cleanup, and Tinfoil's admin API, used
   # only to stop this instance after an hour without use.
@@ -34,7 +36,7 @@ networks:
 
 containers:
   - name: broker
-    image: "ghcr.io/pistol/discreto@sha256:1142f85bb58caa700e96a7ace765973926509789b8b592c5020002b5957edd1d"
+    image: "ghcr.io/pistol/discreto@sha256:12f800f2f7824648907cf08ee67db6457a619fbf27f87ad02038690860c16f33"
     command: ["uvicorn", "--factory", "discreto.broker.app:build_from_env", "--host", "0.0.0.0", "--port", "8000"]
     networks: [internal, mail]
     env:
@@ -66,7 +68,7 @@ containers:
     restart: always
 
   - name: agent
-    image: "ghcr.io/pistol/discreto@sha256:1142f85bb58caa700e96a7ace765973926509789b8b592c5020002b5957edd1d"
+    image: "ghcr.io/pistol/discreto@sha256:12f800f2f7824648907cf08ee67db6457a619fbf27f87ad02038690860c16f33"
     command: ["uvicorn", "--factory", "discreto.agent.app:build_from_env", "--host", "0.0.0.0", "--port", "8001"]
     networks: [internal, inference]
     env:
@@ -80,6 +82,7 @@ containers:
       - BROKER_TOKEN
       - TINFOIL_API_KEY
       - VENICE_API_KEY
+      - PHALA_API_KEY
     tmpfs:
       /tmp: "size=128m"
     restart: always
