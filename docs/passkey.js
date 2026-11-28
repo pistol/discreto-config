@@ -5,8 +5,8 @@
 // HKDF, is an AES-GCM key that encrypts the access token, the storage key and the
 // GitHub token. The passkey syncs through iCloud Keychain, so every one of your
 // devices gets the same secret from it. Only the ciphertext is kept: in this
-// browser's localStorage and, once you add it, as discreto-vault.json in the public
-// config repo, which is how a new device finds it. The passkey's secret never leaves
+// browser's localStorage and, saved there by the save-vault workflow, as
+// discreto-vault.json in the public config repo, which is how a new device finds it. The passkey's secret never leaves
 // the device it is used on, and Discreto itself never sees it.
 
 const VAULT_KEY = "discreto.vault";

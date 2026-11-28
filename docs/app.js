@@ -7,7 +7,7 @@
 import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
 import { ENCLAVE_URL, CONFIG_REPO, START_REPO, START_WORKFLOW } from "./config.js?v=4";
 import { renderMarkdown } from "./markdown.js?v=3";
-import { hasVault, createVault, openVault, forgetVault, passkeysAvailable, VAULT_FILE, vaultFile, publishedVault, adoptVault, publishedIsCurrent } from "./passkey.js?v=3";
+import { hasVault, createVault, openVault, forgetVault, passkeysAvailable, vaultFile, publishedVault, adoptVault, publishedIsCurrent } from "./passkey.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
@@ -161,7 +161,7 @@ async function start() {
   await checkStorage();
   showTab(tabFromHash());
   offerPasskey();
-  offerShare();
+  saveVault();
   loadHeader();
   loadModels();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
@@ -529,7 +529,7 @@ $("passkey-save").addEventListener("click", async () => {
     return;
   }
   const v = await openVault().catch(() => null);
-  if (v) vaultUpdate = v.update;
+  if (v) { vaultUpdate = v.update; githubMem = githubMem || v.secrets.githubToken || null; }
   localStorage.removeItem(SKIP_PUBLISHED);
   // Plain copies go away; from now on the keys come out only with Touch ID.
   localStorage.removeItem(TOKEN_KEY);
@@ -538,43 +538,38 @@ $("passkey-save").addEventListener("click", async () => {
   sessionStorage.setItem(TOKEN_KEY, token);
   $("passkey-offer").hidden = true;
   showToast("Saved. Next time, sign in with Touch ID.");
-  offerShare();
+  saveVault();
 });
 
-// Other devices: the vault is only ciphertext that the synced passkey opens, so it can
-// sit in the public config repo, where a new device's first visit picks it up.
-const SHARE_DECLINED = "discreto.shareDeclined";
-async function offerShare() {
+// Other devices: the vault is only ciphertext that the synced passkey opens, so it is
+// saved in the public config repo, where a new device's first visit picks it up. The
+// save-vault workflow in START_REPO writes it, run with the GitHub token from the vault,
+// whenever the copy there isn't the one in this browser. Nothing for you to do.
+const VAULT_WORKFLOW = "save-vault.yml";
+const VAULT_SAVED = "discreto.vaultSaveAsked";
+async function saveVault() {
   const file = vaultFile();
-  if (!file) return;
+  const gh = githubMem || localStorage.getItem(GITHUB_KEY);
+  if (!file || !gh) return;
   const ct = JSON.parse(file).ct;
-  if (localStorage.getItem(SHARE_DECLINED) === ct) return;
-  const published = await publishedVault(CONFIG_REPO);
-  if (publishedIsCurrent(published)) { $("passkey-share").hidden = true; return; }
-  $("passkey-share-text").textContent = published
-    ? `The keys in ${CONFIG_REPO} are older than the ones saved on this device. Download the new file and replace ${VAULT_FILE} in that repo, so your other devices get them too.`
-    : `Use Touch ID and Face ID on your other devices too? Download your encrypted keys and add ${VAULT_FILE} to the top folder of ${CONFIG_REPO}. Only your passkey can open it, so the file can be public.`;
-  $("passkey-share").hidden = false;
+  // The public copy can lag a few minutes behind a save, so ask once per version
+  // every 10 minutes at most, until it shows up.
+  let asked = {};
+  try { asked = JSON.parse(localStorage.getItem(VAULT_SAVED)) || {}; } catch {}
+  if (asked.ct === ct && Date.now() - asked.at < 600000) return;
+  if (publishedIsCurrent(await publishedVault(CONFIG_REPO))) return;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${START_REPO}/actions/workflows/${VAULT_WORKFLOW}/dispatches`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${gh}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { vault: JSON.stringify(JSON.parse(file)) } }),
+    });
+    if (res.ok) localStorage.setItem(VAULT_SAVED, JSON.stringify({ ct, at: Date.now() }));
+    else console.warn(`Saving the encrypted keys for other devices failed (${res.status}).`);
+  } catch (err) {
+    console.warn(`Saving the encrypted keys for other devices failed: ${err.message}`);
+  }
 }
-
-$("passkey-download").addEventListener("click", () => {
-  const file = vaultFile();
-  if (!file) return;
-  const a = el("a");
-  a.href = URL.createObjectURL(new Blob([file], { type: "application/json" }));
-  a.download = VAULT_FILE;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-  $("passkey-share-msg").textContent = `Downloaded. Once ${VAULT_FILE} is in ${CONFIG_REPO}, a new device signs in with Face ID or Touch ID alone.`;
-});
-
-$("passkey-share-later").addEventListener("click", () => {
-  const file = vaultFile();
-  if (file) localStorage.setItem(SHARE_DECLINED, JSON.parse(file).ct);
-  $("passkey-share").hidden = true;
-});
 
 $("passkey-later").addEventListener("click", () => {
   localStorage.setItem("discreto.passkeyDeclined", "1");
