@@ -7,7 +7,7 @@
 import { SecureClient } from "./vendor/tinfoil-1.4.0.js?v=3"; // bundled tinfoil@1.4.0, see vendor/README
 import { ENCLAVE_URL, CONFIG_REPO, START_REPO, START_WORKFLOW } from "./config.js?v=4";
 import { renderMarkdown } from "./markdown.js?v=3";
-import { hasVault, createVault, openVault, forgetVault, passkeysAvailable } from "./passkey.js?v=2";
+import { hasVault, createVault, openVault, forgetVault, passkeysAvailable, VAULT_FILE, vaultFile, publishedVault, adoptVault, publishedIsCurrent } from "./passkey.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "discreto_token";
@@ -161,6 +161,7 @@ async function start() {
   await checkStorage();
   showTab(tabFromHash());
   offerPasskey();
+  offerShare();
   loadHeader();
   loadModels();
   setInterval(() => { if (document.visibilityState === "visible") refreshBadges(); }, 60000);
@@ -260,6 +261,7 @@ function showStopped() {
   badge.textContent = "Stopped";
   badge.className = "badge pending";
   $("gh-token").hidden = Boolean(localStorage.getItem(GITHUB_KEY)) || hasVault();
+  if (hasVault()) $("start-btn").textContent = "Start with Touch ID";
   $("stopped").hidden = false;
 }
 
@@ -268,12 +270,15 @@ $("start-form").addEventListener("submit", async (e) => {
   const msg = $("stopped-msg");
   const btn = $("start-btn");
   let gh = localStorage.getItem(GITHUB_KEY) || githubMem || $("gh-token").value.trim();
-  if (!gh && hasVault()) {
+  // One Touch ID here opens every key: the GitHub token to start Discreto, then the
+  // access token and storage key to sign in and unlock once it's up.
+  if (hasVault() && !startSecrets) {
     try {
       const v = await openVault();
       vaultUpdate = v.update;
-      githubMem = gh = v.secrets.githubToken || "";
-    } catch (err) { msg.textContent = `Touch ID didn't open the saved keys: ${err.message}`; return; }
+      startSecrets = v.secrets;
+      githubMem = gh = gh || v.secrets.githubToken || "";
+    } catch (err) { $("gh-token").hidden = false; msg.textContent = `Touch ID didn't open the saved keys: ${err.message}`; return; }
     if (!gh) { $("gh-token").hidden = false; msg.textContent = "No GitHub token is saved with Touch ID yet. Enter one once."; return; }
   }
   if (!gh) { msg.textContent = "Enter a GitHub token first."; return; }
@@ -325,11 +330,34 @@ $("start-form").addEventListener("submit", async (e) => {
   while (Date.now() - t0 < 240000) {
     await sleep(3000);
     msg.textContent = `Starting Discreto... ${Math.round((Date.now() - t0) / 1000)}s`;
-    if (await isUp()) { location.reload(); return; }
+    if (await isUp()) {
+      // Without saved keys there's nothing to carry over, so reload as before.
+      if (!startSecrets) { location.reload(); return; }
+      await resumeAfterStart(startSecrets);
+      return;
+    }
   }
   msg.textContent = `Discreto isn't up after 4 minutes. Check the workflow runs in ${START_REPO} on GitHub.`;
   btn.disabled = false;
 });
+
+let startSecrets = null;
+
+// After a Touch ID start: verify the new enclave, then sign in and unlock storage
+// with the keys already opened, so no second Touch ID is needed.
+async function resumeAfterStart(secrets) {
+  $("stopped").hidden = true;
+  if (!(await verify())) return;
+  if (secrets.token) {
+    token = secrets.token;
+    // Kept for this tab only, as with Touch ID sign-in.
+    sessionStorage.setItem(TOKEN_KEY, token);
+  }
+  storageKeyMem = secrets.storageKey || storageKeyMem;
+  if (token) { await start(); return; }
+  $("login-passkey-box").hidden = !hasVault();
+  $("login").hidden = false;
+}
 
 // Encrypted storage: the key stays with the user and goes only to the verified enclave.
 
@@ -474,8 +502,10 @@ $("login-passkey").addEventListener("click", async () => {
   await start();
 });
 
+const SKIP_PUBLISHED = "discreto.skipPublished";
 $("login-forget").addEventListener("click", () => {
   forgetVault();
+  localStorage.setItem(SKIP_PUBLISHED, "1");
   $("login-passkey-box").hidden = true;
 });
 
@@ -500,6 +530,7 @@ $("passkey-save").addEventListener("click", async () => {
   }
   const v = await openVault().catch(() => null);
   if (v) vaultUpdate = v.update;
+  localStorage.removeItem(SKIP_PUBLISHED);
   // Plain copies go away; from now on the keys come out only with Touch ID.
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(STORAGE_KEY);
@@ -507,6 +538,42 @@ $("passkey-save").addEventListener("click", async () => {
   sessionStorage.setItem(TOKEN_KEY, token);
   $("passkey-offer").hidden = true;
   showToast("Saved. Next time, sign in with Touch ID.");
+  offerShare();
+});
+
+// Other devices: the vault is only ciphertext that the synced passkey opens, so it can
+// sit in the public config repo, where a new device's first visit picks it up.
+const SHARE_DECLINED = "discreto.shareDeclined";
+async function offerShare() {
+  const file = vaultFile();
+  if (!file) return;
+  const ct = JSON.parse(file).ct;
+  if (localStorage.getItem(SHARE_DECLINED) === ct) return;
+  const published = await publishedVault(CONFIG_REPO);
+  if (publishedIsCurrent(published)) { $("passkey-share").hidden = true; return; }
+  $("passkey-share-text").textContent = published
+    ? `The keys in ${CONFIG_REPO} are older than the ones saved on this device. Download the new file and replace ${VAULT_FILE} in that repo, so your other devices get them too.`
+    : `Use Touch ID and Face ID on your other devices too? Download your encrypted keys and add ${VAULT_FILE} to the top folder of ${CONFIG_REPO}. Only your passkey can open it, so the file can be public.`;
+  $("passkey-share").hidden = false;
+}
+
+$("passkey-download").addEventListener("click", () => {
+  const file = vaultFile();
+  if (!file) return;
+  const a = el("a");
+  a.href = URL.createObjectURL(new Blob([file], { type: "application/json" }));
+  a.download = VAULT_FILE;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  $("passkey-share-msg").textContent = `Downloaded. Once ${VAULT_FILE} is in ${CONFIG_REPO}, a new device signs in with Face ID or Touch ID alone.`;
+});
+
+$("passkey-share-later").addEventListener("click", () => {
+  const file = vaultFile();
+  if (file) localStorage.setItem(SHARE_DECLINED, JSON.parse(file).ct);
+  $("passkey-share").hidden = true;
 });
 
 $("passkey-later").addEventListener("click", () => {
@@ -2009,6 +2076,10 @@ $("verify-dialog").addEventListener("click", (e) => { if (e.target === $("verify
 // Boot
 
 (async () => {
+  // A new device picks up the encrypted keys from the config repo; Touch ID or
+  // Face ID with the synced passkey opens them.
+  // "Forget" on this device also stops that, until keys are saved here again.
+  if (!hasVault() && !localStorage.getItem(SKIP_PUBLISHED)) adoptVault(await publishedVault(CONFIG_REPO));
   if (!(await isUp())) { showStopped(); return; }
   if (!(await verify())) return;
   if (token) await start();

@@ -3,10 +3,14 @@
 // A passkey (in iCloud Keychain) with the WebAuthn PRF extension gives the page a
 // secret that only comes out after Touch ID or Face ID. That secret, run through
 // HKDF, is an AES-GCM key that encrypts the access token, the storage key and the
-// GitHub token. Only the ciphertext is kept in localStorage; the passkey and its
-// secret never leave the device, and Discreto itself never sees either.
+// GitHub token. The passkey syncs through iCloud Keychain, so every one of your
+// devices gets the same secret from it. Only the ciphertext is kept: in this
+// browser's localStorage and, once you add it, as discreto-vault.json in the public
+// config repo, which is how a new device finds it. The passkey's secret never leaves
+// the device it is used on, and Discreto itself never sees it.
 
 const VAULT_KEY = "discreto.vault";
+export const VAULT_FILE = "discreto-vault.json";
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -19,6 +23,59 @@ export function hasVault() {
 
 export function forgetVault() {
   localStorage.removeItem(VAULT_KEY);
+}
+
+// Only the four fields the vault needs, each plain base64 of a sane size, so a file
+// from the config repo can't put anything else into this page's storage.
+function clean(v) {
+  if (!v || v.v !== 1) return null;
+  const out = { v: 1 };
+  for (const k of ["cred", "salt", "iv", "ct"]) {
+    if (typeof v[k] !== "string" || !v[k] || v[k].length > 16384 || !/^[A-Za-z0-9+/]+={0,2}$/.test(v[k])) return null;
+    out[k] = v[k];
+  }
+  return out;
+}
+
+function localVault() {
+  try { return clean(JSON.parse(localStorage.getItem(VAULT_KEY) || "null")); } catch { return null; }
+}
+
+// The encrypted vault as a file to add to the config repo, or null if there is none.
+export function vaultFile() {
+  const v = localVault();
+  return v ? JSON.stringify(v, null, 2) + "\n" : null;
+}
+
+// The copy published in the config repo, or null when there is none or it can't be read.
+export async function publishedVault(configRepo) {
+  if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(configRepo || "")) return null;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const res = await fetch(`https://raw.githubusercontent.com/${configRepo}/main/${VAULT_FILE}`,
+      { cache: "no-store", signal: ctl.signal });
+    return res.ok ? clean(await res.json()) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// On a device with nothing saved yet, keep the published copy, so Touch ID or Face ID
+// with the synced passkey opens it. Returns true when it was adopted.
+export function adoptVault(published) {
+  const v = clean(published);
+  if (!v || hasVault()) return false;
+  localStorage.setItem(VAULT_KEY, JSON.stringify(v));
+  return true;
+}
+
+// Whether the published copy is exactly the one saved in this browser.
+export function publishedIsCurrent(published) {
+  const a = localVault(), b = clean(published);
+  return Boolean(a && b) && ["cred", "salt", "iv", "ct"].every((k) => a[k] === b[k]);
 }
 
 export async function passkeysAvailable() {
@@ -86,7 +143,7 @@ async function seal(credId, salt, prf, secrets) {
 
 // Touch ID, then the saved secrets: { token, storageKey, githubToken }.
 export async function openVault() {
-  const v = JSON.parse(localStorage.getItem(VAULT_KEY) || "null");
+  const v = localVault();
   if (!v) throw new Error("Nothing is saved with Touch ID on this device.");
   const salt = unb64(v.salt);
   const prf = await prfFrom(unb64(v.cred), salt);
@@ -95,7 +152,10 @@ export async function openVault() {
   let secrets = JSON.parse(dec.decode(pt));
   // Each update builds on the last one, so saving the storage key later in the same
   // page can't drop a GitHub token saved a moment earlier.
+  // Nothing is re-encrypted when nothing changed, so the copy in the config repo
+  // stays current across ordinary sign-ins.
   const update = async (more) => {
+    if (Object.keys(more).every((k) => secrets[k] === more[k])) return;
     secrets = { ...secrets, ...more };
     await seal(unb64(v.cred), salt, prf, secrets);
   };
